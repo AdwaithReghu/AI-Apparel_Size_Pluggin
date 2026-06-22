@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test Widget</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .product {
+            border: 1px solid #ddd;
+            border-radius: 12px;
+            padding: 24px;
+        }
+        h1 { color: #333; }
+        .price { color: #6C63FF; font-size: 24px; font-weight: bold; }
+        .sizes {
+            display: flex;
+            gap: 8px;
+            margin: 16px 0;
+        }
+        .size-btn {
+            border: 2px solid #ddd;
+            background: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .size-btn.selected {
+            border-color: #6C63FF;
+            background: #6C63FF;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="product">
+        <h1>Blue Denim Jacket</h1>
+        <p class="price">$89.00</p>
+        <p>Brand: Levis | Category: Jacket</p>
+
+        <p><strong>Select Size:</strong></p>
+        <div class="sizes">
+            <button class="size-btn" data-size="XS">XS</button>
+            <button class="size-btn" data-size="S">S</button>
+            <button class="size-btn" data-size="M">M</button>
+            <button class="size-btn" data-size="L">L</button>
+            <button class="size-btn" data-size="XL">XL</button>
+        </div>
+
+        <!-- NYTT Widget -->
+        <script
+            src="http://127.0.0.1:8000/widget.js"
+            data-key="nytt_live_a52dc2c7a28e5a4daafcfc5891378a9e1b75ad8c09e474f0"
+            data-brand="Levis"
+            data-category="Jacket"
+            data-api-url="http://127.0.0.1:8000/api">
+        </script>
+
+        <br><br>
+        <button style="background:#333;color:white;padding:12px 24px;border:none;border-radius:8px;font-size:16px;cursor:pointer;">
+            Add to Cart
+        </button>
+    </div>
+
+    <script>
+        // Handle size button selection
+        document.querySelectorAll('.size-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.size-btn')
+                    .forEach(b => b.classList.remove('selected'));
+                this.classList.add('selected');
+            });
+        });
+    </script>
+</body>
+</html>

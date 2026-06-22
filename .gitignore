@@ -1,0 +1,36 @@
+# =====================
+# Flutter
+# =====================
+**/.dart_tool/
+**/.packages
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/build/
+
+# =====================
+# Python
+# =====================
+**/__pycache__/
+**/*.pyc
+**/venv/
+**/.env
+
+# =====================
+# Laravel
+# =====================
+**/vendor/
+**/node_modules/
+**/.env
+**/storage/logs/*.log
+
+# =====================
+# IDE
+# =====================
+.vscode/
+.idea/
+
+# =====================
+# OS
+# =====================
+.DS_Store
+Thumbs.db
