@@ -2259,10 +2259,7 @@ class _GarmentDetailsScreenState extends State<GarmentDetailsScreen> {
   String _selectedCategory = 'Shirt';
   String _selectedSize = 'M';
 
-  final List<String> _categories = [
-    'Shirt', 'T-Shirt', 'Jacket', 'Trousers',
-    'Dress', 'Skirt', 'Shorts', 'Sweater', 'Coat', 'Other',
-  ];
+  List<String> _categories = [];
 
   final List<String> _sizes = [
     'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL',
@@ -2271,10 +2268,21 @@ class _GarmentDetailsScreenState extends State<GarmentDetailsScreen> {
   @override
   void initState() {
     super.initState();
-    // Pre-select suggested size if available
+    _loadCategories();
     if (widget.suggestedSize != null) {
       _selectedSize = widget.suggestedSize!;
     }
+  }
+
+  Future<void> _loadCategories() async {
+    final categories = await ApiService.getCategories();
+    setState(() {
+      _categories = categories;
+      if (_categories.isNotEmpty &&
+          !_categories.contains(_selectedCategory)) {
+        _selectedCategory = _categories.first;
+      }
+    });
   }
   @override
   void dispose() {
@@ -3093,22 +3101,28 @@ class _ManualEntryScreenState extends State<ManualEntryScreen> {
   String _selectedSize = 'M';
   bool _isLoading = false;
 
-  final List<String> _categories = [
-    'Shirt',
-    'T-Shirt',
-    'Jacket',
-    'Trousers',
-    'Dress',
-    'Skirt',
-    'Shorts',
-    'Sweater',
-    'Coat',
-    'Other',
-  ];
+  List<String> _categories = [];
+
 
   final List<String> _sizes = [
     'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    final categories = await ApiService.getCategories();
+    setState(() {
+      _categories = categories;
+      if (_categories.isNotEmpty) {
+        _selectedCategory = _categories.first;
+      }
+    });
+  }
 
   @override
   void dispose() {

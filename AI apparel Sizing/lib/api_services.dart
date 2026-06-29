@@ -199,4 +199,32 @@ class ApiService {
       return {'success': false, 'message': 'Network error: $e'};
     }
   }
+
+  static Future<List<String>> getCategories() async {
+    try {
+      final token = await getToken();
+      final response = await http.get(
+        Uri.parse('$baseUrl/categories'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      );
+
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200 && data['success']) {
+        return List<String>.from(data['categories']);
+      }
+      return _defaultCategories();
+    } catch (e) {
+      return _defaultCategories();
+    }
+  }
+
+  static List<String> _defaultCategories() {
+    return [
+      'Shirt', 'T-Shirt', 'Jacket', 'Trousers',
+      'Dress', 'Skirt', 'Shorts', 'Sweater', 'Coat', 'Other'
+    ];
+  }
 }
