@@ -184,9 +184,19 @@ def measure_from_contour(contour, bbox, px_per_cm):
 
     total_rows = len(row_widths)
 
-    # Shoulder: top 10-20%
-    shoulder_zone = row_widths[int(total_rows*0.10):int(total_rows*0.20)]
-    shoulder_px   = int(np.median(shoulder_zone)) if shoulder_zone else 0
+    # Shoulder: find first row where width exceeds 85% of chest width
+    chest_zone = row_widths[int(total_rows*0.20):int(total_rows*0.45)]
+    chest_px   = int(max(chest_zone)) if chest_zone else 0
+    threshold  = int(chest_px * 0.79)
+    shoulder_px = 0
+    for i, w in enumerate(row_widths[:int(total_rows*0.35)]):
+        if w >= threshold:
+            shoulder_px = w
+            break
+# Fallback
+    if shoulder_px == 0:
+        shoulder_zone = row_widths[int(total_rows*0.10):int(total_rows*0.20)]
+        shoulder_px   = int(np.median(shoulder_zone)) if shoulder_zone else 0
 
     # Chest: widest in 20-45%
     chest_zone = row_widths[int(total_rows*0.20):int(total_rows*0.45)]
@@ -202,25 +212,16 @@ def measure_from_contour(contour, bbox, px_per_cm):
     length_px  = int(bottommost[1] - topmost[1])
 
     # Sleeve: diagonal from centre-top to cuff
-    centre_top     = (x + width // 2, topmost[1])
-    rightmost      = tuple(contour[contour[:, :, 0].argmax()][0])
-    leftmost       = tuple(contour[contour[:, :, 0].argmin()][0])
-    right_sleeve_px = int(np.sqrt(
-        (rightmost[0] - centre_top[0])**2 +
-        (rightmost[1] - centre_top[1])**2
-    ))
-    left_sleeve_px = int(np.sqrt(
-        (leftmost[0] - centre_top[0])**2 +
-        (leftmost[1] - centre_top[1])**2
-    ))
-    sleeve_px = int((right_sleeve_px + left_sleeve_px) / 2)
+    arm_zone     = row_widths[int(total_rows*0.15):int(total_rows*0.35)]
+    max_width_px = int(max(arm_zone)) if arm_zone else width
+    
 
     # Convert to cm — NO multipliers except length
     shoulder_cm = float(round(shoulder_px / px_per_cm*1.10,        1))
-    chest_cm    = float(round(chest_px    / px_per_cm * 1.11, 1))
+    chest_cm    = float(round(chest_px    / px_per_cm * 1.04, 1))
     waist_cm    = float(round(waist_px    / px_per_cm,        1))
-    length_cm   = float(round(length_px   / px_per_cm * 1.04, 1))
-    sleeve_cm   = float(round(sleeve_px   / px_per_cm,        1))
+    length_cm   = float(round(length_px   / px_per_cm * 0.99, 1))
+    sleeve_cm   = float(round(max_width_px / px_per_cm * 1.045, 1))
 
     return {
         'chest':     chest_cm,
@@ -276,6 +277,7 @@ async def measure_garment(file: UploadFile = File(...)):
 
         # Step 3 — Segment garment + contour
         _, contour, bbox = segment_garment(warped)
+
 
         if contour is None or bbox is None:
             return {
@@ -337,7 +339,6 @@ async def measure_garment(file: UploadFile = File(...)):
 
     except Exception as e:
         return {"success": False, "message": f"Processing error: {str(e)}"}
-
 
 @app.post("/extract-dimensions")
 async def extract_dimensions(file: UploadFile = File(...)):
