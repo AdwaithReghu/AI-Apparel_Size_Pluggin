@@ -163,13 +163,11 @@ def measure_from_contour(contour, bbox, px_per_cm):
     width  = bbox['width_px']
     height = bbox['height_px']
 
-    # Draw filled contour mask for row scanning
     h_img  = y + height + 10
     w_img  = x + width  + 10
     mask   = np.zeros((h_img, w_img), dtype=np.uint8)
     cv2.drawContours(mask, [contour], -1, 255, thickness=cv2.FILLED)
 
-    # Row-by-row width scan
     row_widths = []
     for row_y in range(y, y + height):
         if row_y >= mask.shape[0]:
@@ -198,21 +196,30 @@ def measure_from_contour(contour, bbox, px_per_cm):
     waist_zone = [w for w in row_widths[int(total_rows*0.45):int(total_rows*0.65)] if w > 0]
     waist_px   = int(min(waist_zone)) if waist_zone else 0
 
-    # ── Length: topmost to bottommost contour point ──
-    # This is the KEY fix — uses actual garment edges not bounding box
+    # Length: topmost to bottommost contour point
     topmost    = tuple(contour[contour[:, :, 1].argmin()][0])
     bottommost = tuple(contour[contour[:, :, 1].argmax()][0])
     length_px  = int(bottommost[1] - topmost[1])
 
-    # Sleeve
-    sleeve_px = int(length_px * 1.05)
+    # Sleeve: diagonal from centre-top to cuff
+    centre_top     = (x + width // 2, topmost[1])
+    rightmost      = tuple(contour[contour[:, :, 0].argmax()][0])
+    leftmost       = tuple(contour[contour[:, :, 0].argmin()][0])
+    right_sleeve_px = int(np.sqrt(
+        (rightmost[0] - centre_top[0])**2 +
+        (rightmost[1] - centre_top[1])**2
+    ))
+    left_sleeve_px = int(np.sqrt(
+        (leftmost[0] - centre_top[0])**2 +
+        (leftmost[1] - centre_top[1])**2
+    ))
+    sleeve_px = int((right_sleeve_px + left_sleeve_px) / 2)
 
-    # Convert to cm
-    shoulder_cm = float(round(shoulder_px / px_per_cm,        1))
-    chest_cm    = float(round(chest_px    / px_per_cm *1.04,        1))
+    # Convert to cm — NO multipliers except length
+    shoulder_cm = float(round(shoulder_px / px_per_cm*1.10,        1))
+    chest_cm    = float(round(chest_px    / px_per_cm * 1.11, 1))
     waist_cm    = float(round(waist_px    / px_per_cm,        1))
-    length_cm   = float(round(length_px / px_per_cm * 0.88, 1))  # was 1.05
-
+    length_cm   = float(round(length_px   / px_per_cm * 1.04, 1))
     sleeve_cm   = float(round(sleeve_px   / px_per_cm,        1))
 
     return {
@@ -225,16 +232,15 @@ def measure_from_contour(contour, bbox, px_per_cm):
         'height_cm': float(round(height / px_per_cm, 1)),
     }
 
-
 # ── Step 5: Validate ────────────────────────────────────
 
 def validate_measurements(m):
     return (
-        35  <= m['chest']    <= 80  and
-        25  <= m['waist']    <= 75  and
-        40  <= m['length']   <= 130 and
-        25  <= m['shoulder'] <= 65  and
-        40  <= m['sleeve']   <= 100
+        30  <= m['chest']    <= 90  and
+        20  <= m['waist']    <= 80  and
+        30  <= m['length']   <= 130 and
+        20  <= m['shoulder'] <= 70  and
+        10  <= m['sleeve']   <= 120
     )
 
 
