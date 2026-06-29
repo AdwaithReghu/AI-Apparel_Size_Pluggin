@@ -22,14 +22,28 @@ class GarmentResource extends Resource
             ->required(),
         \Filament\Forms\Components\TextInput::make('brand'),
         \Filament\Forms\Components\Select::make('category')
-            ->options([
-                'Shirt'    => 'Shirt',
-                'T-Shirt'  => 'T-Shirt',
-                'Jacket'   => 'Jacket',
-                'Trousers' => 'Trousers',
-                'Dress'    => 'Dress',
-                'Other'    => 'Other',
-            ]),
+    ->options(function () {
+        $dbCategories = \App\Models\Category::where('user_id', auth()->id())
+            ->where('is_active', true)
+            ->pluck('name', 'name')
+            ->toArray();
+
+        $defaultCategories = [
+            'Shirt'    => 'Shirt',
+            'T-Shirt'  => 'T-Shirt',
+            'Jacket'   => 'Jacket',
+            'Trousers' => 'Trousers',
+            'Dress'    => 'Dress',
+            'Skirt'    => 'Skirt',
+            'Shorts'   => 'Shorts',
+            'Sweater'  => 'Sweater',
+            'Coat'     => 'Coat',
+            'Other'    => 'Other',
+        ];
+
+        return array_merge($defaultCategories, $dbCategories);
+    })
+    ->searchable(),
         \Filament\Forms\Components\Select::make('size_label')
             ->options([
                 'XS' => 'XS',

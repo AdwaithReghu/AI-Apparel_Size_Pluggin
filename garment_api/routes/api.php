@@ -82,6 +82,28 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/garments/{id}', [GarmentController::class, 'update']);
     Route::delete('/garments/{id}', [GarmentController::class, 'destroy']);
 
+    // Get merchant categories
+Route::get('/categories', function(\Illuminate\Http\Request $request) {
+    $defaultCategories = [
+        'Shirt', 'T-Shirt', 'Jacket', 'Trousers',
+        'Dress', 'Skirt', 'Shorts', 'Sweater', 'Coat', 'Other'
+    ];
+
+    $dbCategories = \App\Models\Category::where('user_id', $request->user()->id)
+        ->where('is_active', true)
+        ->pluck('name')
+        ->toArray();
+
+    $allCategories = array_unique(
+        array_merge($defaultCategories, $dbCategories)
+    );
+
+    return response()->json([
+        'success'    => true,
+        'categories' => array_values($allCategories),
+    ]);
+});
+
     Route::post('/scans/process', [ScanController::class, 'process']);
     Route::post('/scan/extract', [ScanController::class, 'process']);
     Route::get('/scans', [ScanController::class, 'index']);

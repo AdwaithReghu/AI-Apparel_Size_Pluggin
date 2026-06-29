@@ -29,32 +29,29 @@ class SizeChartResource extends Resource
                 ->required(),
 
             \Filament\Forms\Components\Select::make('category')
-                ->options([
-                    'Shirt'    => 'Shirt',
-                    'T-Shirt'  => 'T-Shirt',
-                    'Jacket'   => 'Jacket',
-                    'Trousers' => 'Trousers',
-                    'Dress'    => 'Dress',
-                    'Skirt'    => 'Skirt',
-                    'Shorts'   => 'Shorts',
-                    'Sweater'  => 'Sweater',
-                    'Coat'     => 'Coat',
-                    'Other'    => 'Other',
-                ])
-                ->required(),
+    ->options(function () {
+        $dbCategories = \App\Models\Category::where('user_id', auth()->id())
+            ->where('is_active', true)
+            ->pluck('name', 'name')
+            ->toArray();
 
-            \Filament\Forms\Components\Select::make('size_label')
-                ->label('Size')
-                ->options([
-                    'XS'   => 'XS',
-                    'S'    => 'S',
-                    'M'    => 'M',
-                    'L'    => 'L',
-                    'XL'   => 'XL',
-                    'XXL'  => 'XXL',
-                    'XXXL' => 'XXXL',
-                ])
-                ->required(),
+        $defaultCategories = [
+            'Shirt'    => 'Shirt',
+            'T-Shirt'  => 'T-Shirt',
+            'Jacket'   => 'Jacket',
+            'Trousers' => 'Trousers',
+            'Dress'    => 'Dress',
+            'Skirt'    => 'Skirt',
+            'Shorts'   => 'Shorts',
+            'Sweater'  => 'Sweater',
+            'Coat'     => 'Coat',
+            'Other'    => 'Other',
+        ];
+
+        return array_merge($defaultCategories, $dbCategories);
+    })
+    ->searchable()
+    ->required(),
 
             \Filament\Forms\Components\Toggle::make('is_active')
                 ->default(true)

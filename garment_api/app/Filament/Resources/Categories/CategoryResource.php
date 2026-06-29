@@ -46,9 +46,7 @@ class CategoryResource extends Resource
                     ->searchable()
                     ->sortable()
                     ->weight('bold'),
-                TextColumn::make('slug')
-                    ->searchable()
-                    ->sortable(),
+                
                 TextColumn::make('description')
                     ->limit(40)
                     ->default('—'),

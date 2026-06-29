@@ -24,8 +24,7 @@ class BrandResource extends Resource
                 ->maxLength(255),
             \Filament\Forms\Components\TextInput::make('website')
                 ->maxLength(255),
-            \Filament\Forms\Components\TextInput::make('country')
-                ->maxLength(255),
+            
             \Filament\Forms\Components\Textarea::make('sizing_philosophy')
                 ->rows(4)
                 ->label('Sizing Notes')
@@ -45,8 +44,7 @@ class BrandResource extends Resource
                 TextColumn::make('name')
                     ->searchable()
                     ->sortable(),
-                TextColumn::make('country')
-                    ->default('—'),
+                
                 TextColumn::make('website')
                     ->default('—')
                     ->limit(30),
