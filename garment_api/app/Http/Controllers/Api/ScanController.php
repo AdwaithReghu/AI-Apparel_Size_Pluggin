@@ -19,6 +19,7 @@ class ScanController extends Controller
         $request->validate([
             'image'    => 'required|image|max:10240',
             'category' => 'nullable|string|max:100',
+            'garment_type' => 'required|string|in:shirt,pants',
         ]);
 
         $imagePath = null;
@@ -32,7 +33,9 @@ class ScanController extends Controller
                 'file',
                 file_get_contents(storage_path('app/public/' . $imagePath)),
                 'garment.jpg'
-            )->post($this->pythonServiceUrl . '/measure');
+            )->post($this->pythonServiceUrl . '/measure',[
+                'garment_type' => $request->input('garment_type'),
+            ]);
 
             if (!$response->successful()) {
                 $this->cleanupImage($imagePath);
