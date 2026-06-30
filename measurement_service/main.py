@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 import cv2
 import numpy as np
@@ -245,6 +245,114 @@ def validate_measurements(m):
     )
 
 
+def measure_pants_from_contour(contour, bbox, px_per_cm):
+    x      = bbox['x']
+    y      = bbox['y']
+    width  = bbox['width_px']
+    height = bbox['height_px']
+ 
+    h_img = y + height + 10
+    w_img = x + width  + 10
+    mask  = np.zeros((h_img, w_img), dtype=np.uint8)
+    cv2.drawContours(mask, [contour], -1, 255, thickness=cv2.FILLED)
+ 
+    row_widths = []
+    for row_y in range(y, y + height):
+        if row_y >= mask.shape[0]:
+            break
+        row     = mask[row_y, x: x + width]
+        nonzero = np.where(row > 0)[0]
+        if len(nonzero) >= 2:
+            row_widths.append(int(nonzero[-1] - nonzero[0]))
+        else:
+            row_widths.append(0)
+ 
+    if not row_widths:
+        return None
+ 
+    total_rows = len(row_widths)
+ 
+    # ── Waist: top 5-12% ──────────────────────────
+    waist_zone = row_widths[int(total_rows * 0.05):int(total_rows * 0.12)]
+    waist_px   = int(np.median(waist_zone)) if waist_zone else 0
+ 
+    # ── Hip: widest point in top 15-35% ───────────
+    hip_zone = row_widths[int(total_rows * 0.15):int(total_rows * 0.35)]
+    hip_px   = int(max(hip_zone)) if hip_zone else 0
+ 
+    # ── Rise: top to crotch point ─────────────────
+    # Crotch = first row after hip where width drops sharply
+    # (legs separate / fold narrows the visible width)
+    rise_row = 0
+    search_start = int(total_rows * 0.20)
+    search_end   = int(total_rows * 0.60)
+    for i in range(search_start, search_end):
+        if i > 0 and row_widths[i] < row_widths[i - 1] * 0.85:
+            rise_row = i
+            break
+    if rise_row == 0:
+        rise_row = int(total_rows * 0.40)  # fallback estimate
+ 
+    # ── Thigh: just below crotch ──────────────────
+    thigh_start = rise_row + int(total_rows * 0.02)
+    thigh_end   = rise_row + int(total_rows * 0.10)
+    thigh_zone  = row_widths[thigh_start:thigh_end]
+    thigh_px    = int(max(thigh_zone)) if thigh_zone else 0
+ 
+    # ── Knee: middle of leg length ─────────────────
+    knee_zone = row_widths[int(total_rows * 0.60):int(total_rows * 0.70)]
+    knee_px   = int(np.median(knee_zone)) if knee_zone else 0
+ 
+    # ── Ankle/Hem: bottom 5-10% ────────────────────
+    ankle_zone = row_widths[int(total_rows * 0.90):int(total_rows * 0.98)]
+    ankle_px   = int(np.median(ankle_zone)) if ankle_zone else 0
+ 
+    # ── Outseam: topmost to bottommost contour point ──
+    topmost    = tuple(contour[contour[:, :, 1].argmin()][0])
+    bottommost = tuple(contour[contour[:, :, 1].argmax()][0])
+    outseam_px = int(bottommost[1] - topmost[1])
+ 
+    # ── Inseam: crotch to hem (approx) ────────────
+    inseam_px = int(outseam_px - rise_row)
+ 
+    # ── Convert to cm ──────────────────────────────
+    # Folded pants → double the front-layer width for waist/hip/thigh/knee/ankle
+    waist_cm   = float(round(waist_px   / px_per_cm * 2,    1))
+    hip_cm     = float(round(hip_px     / px_per_cm * 2,    1))
+    thigh_cm   = float(round(thigh_px   / px_per_cm * 2,    1))
+    knee_cm    = float(round(knee_px    / px_per_cm * 2,    1))
+    ankle_cm   = float(round(ankle_px   / px_per_cm * 2,    1))
+    outseam_cm = float(round(outseam_px / px_per_cm * 1.04, 1))
+    rise_cm    = float(round(rise_row   / px_per_cm * 1.04, 1))
+    inseam_cm  = float(round(inseam_px  / px_per_cm * 1.04, 1))
+ 
+    return {
+        'waist':       waist_cm,
+        'hip':         hip_cm,
+        'thigh':       thigh_cm,
+        'knee':        knee_cm,
+        'ankle':       ankle_cm,
+        'outseam':     outseam_cm,
+        'inseam':      inseam_cm,
+        'rise':        rise_cm,
+        'width_cm':    float(round(width  / px_per_cm, 1)),
+        'height_cm':   float(round(height / px_per_cm, 1)),
+    }
+ 
+ 
+def validate_pants_measurements(m):
+    return (
+        25 <= m['waist']   <= 120 and
+        40 <= m['hip']     <= 130 and
+        10 <= m['thigh']   <= 70 and
+        10 <= m['knee']    <= 60 and
+        8  <= m['ankle']   <= 50 and
+        40 <= m['outseam'] <= 140 and
+        40 <= m['inseam']  <= 120 and
+        8  <= m['rise']    <= 60
+    )
+
+
 # ── Endpoints ───────────────────────────────────────────
 
 @app.get("/")
@@ -252,15 +360,19 @@ def root():
     return {"status": "Garment Measurement Service running"}
 
 
+
 @app.post("/measure")
-async def measure_garment(file: UploadFile = File(...)):
+async def measure_garment(
+    file: UploadFile = File(...),
+    garment_type: str = Form(default="shirt"),  # "shirt" or "pants"
+):
     try:
         image = load_image(await file.read())
-
+ 
         # Step 1 — Detect ArUco markers
         corners, ids = detect_aruco_markers(image)
         markers_found = 0 if ids is None else int(len(ids))
-
+ 
         if corners is None:
             return {
                 "success":       False,
@@ -271,27 +383,26 @@ async def measure_garment(file: UploadFile = File(...)):
                     "Ensure all 4 corner markers are visible and well lit."
                 ),
             }
-
+ 
         # Step 2 — Perspective correction
         warped, px_per_cm = perspective_correction(image, corners)
-
+ 
         # Step 3 — Segment garment + contour
         _, contour, bbox = segment_garment(warped)
-
-
+ 
         if contour is None or bbox is None:
             return {
                 "success":      False,
                 "mat_detected": True,
                 "message":      "No garment detected. Place garment flat inside the markers.",
             }
-
+ 
         # Step 4 — Garment size sanity check
         garment_ratio = float(
             (bbox['width_px'] * bbox['height_px']) /
             (warped.shape[1]  * warped.shape[0])
         )
-
+ 
         if garment_ratio < 0.05:
             return {
                 "success":      False,
@@ -304,41 +415,47 @@ async def measure_garment(file: UploadFile = File(...)):
                 "mat_detected": True,
                 "message":      "Garment too large in frame. Move camera further away.",
             }
-
-        # Step 5 — Contour-based measurements
-        measurements = measure_from_contour(contour, bbox, px_per_cm)
-
+ 
+        # Step 5 — Route to correct measurement function based on garment_type
+        if garment_type == "pants":
+            measurements = measure_pants_from_contour(contour, bbox, px_per_cm)
+            is_valid = measurements is not None and validate_pants_measurements(measurements)
+        else:
+            measurements = measure_from_contour(contour, bbox, px_per_cm)
+            is_valid = measurements is not None and validate_measurements(measurements)
+ 
         if measurements is None:
             return {
                 "success":      False,
                 "mat_detected": True,
                 "message":      "Could not extract measurements. Retake photo.",
             }
-
+ 
         measurements = to_python_types(measurements)
-
-        if not validate_measurements(measurements):
+ 
+        if not is_valid:
             return {
                 "success":      False,
                 "mat_detected": True,
+                "garment_type": garment_type,
                 "message":      (
-                    f"Measurements seem off "
-                    f"(chest={measurements['chest']}cm, "
-                    f"length={measurements['length']}cm). "
+                    f"Measurements seem off for {garment_type}. "
                     "Please retake photo straight down with good lighting."
                 ),
             }
-
+ 
         return {
             "success":       True,
             "mat_detected":  True,
+            "garment_type":  garment_type,
             "markers_found": markers_found,
             "garment_ratio": float(round(garment_ratio, 3)),
             "measurements":  measurements,
         }
-
+ 
     except Exception as e:
         return {"success": False, "message": f"Processing error: {str(e)}"}
+
 
 @app.post("/extract-dimensions")
 async def extract_dimensions(file: UploadFile = File(...)):
