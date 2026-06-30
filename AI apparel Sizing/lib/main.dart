@@ -836,6 +836,7 @@ class _CameraScreenState extends State<CameraScreen> {
   CameraController? _controller;
   bool _isInitialized = false;
   bool _isCapturing = false;
+  String selectedGarment = "shirt";
 
   @override
   void initState() {
@@ -942,7 +943,7 @@ class _CameraScreenState extends State<CameraScreen> {
         );
       }
 
-      final result = await ApiService.processScan(image.path);
+      final result = await ApiService.processScan(image.path, selectedGarment);
 
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -1139,7 +1140,10 @@ class _CameraScreenState extends State<CameraScreen> {
       }
 
       // Send to API
-      final result = await ApiService.processScan(image.path);
+      final result = await ApiService.processScan(
+          image.path,
+        selectedGarment,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -1335,7 +1339,7 @@ class _CameraScreenState extends State<CameraScreen> {
                 color: Colors.black.withValues(alpha: 0.6),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Column(
+              child:  Column(
                 children: [
                   Text(
                     '📏 Place Garment on Mat',
@@ -1355,6 +1359,35 @@ class _CameraScreenState extends State<CameraScreen> {
                       fontSize: 12,
                     ),
                   ),
+                  const SizedBox(height: 12),
+
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: DropdownButton<String>(
+                      value: selectedGarment,
+                      underline: const SizedBox(),
+                      items: const [
+                        DropdownMenuItem(
+                          value: "shirt",
+                          child: Text("Shirt"),
+                        ),
+                        DropdownMenuItem(
+                          value: "pants",
+                          child: Text("Pants"),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        setState(() {
+                          selectedGarment = value!;
+                        });
+                      },
+                    ),
+                  ),
+
                 ],
               ),
             ),

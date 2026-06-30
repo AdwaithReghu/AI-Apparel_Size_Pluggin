@@ -145,7 +145,8 @@ class ApiService {
   // ─── SCAN ───────────────────────────────
 
   static Future<Map<String, dynamic>> processScan(
-      String imagePath) async {
+      String imagePath,
+      String garmentType) async {
     try {
       final token = await getToken();
       final request = http.MultipartRequest(
@@ -161,6 +162,7 @@ class ApiService {
       request.files.add(
         await http.MultipartFile.fromPath('image', imagePath),
       );
+      request.fields['garment_type']=garmentType;
 
       final response = await request.send();
       final body = await response.stream.bytesToString();
