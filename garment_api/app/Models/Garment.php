@@ -10,20 +10,24 @@ class Garment extends Model
     use HasFactory;
 
     protected $fillable = [
-        'user_id',
-        'brand_id',
-        'name',
-        'brand',
-        'category',
-        'size_label',
-        'image_path',
-        'chest',
-        'waist',
-        'length',
-        'shoulder',
-        'sleeve',
-        'status',
-    ];
+    'user_id',
+    'brand_id',
+    'category_id',
+    'status',
+    'measurements',
+    'garment_type',
+    'chest',
+    'waist',
+    'length',
+    'shoulder',
+    'hip',
+    'thigh',
+    'knee',
+    'ankle',
+    'outseam',
+    'inseam',
+    'rise',
+];
 
     public function user()
     {

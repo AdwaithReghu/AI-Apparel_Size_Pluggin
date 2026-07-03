@@ -11,7 +11,12 @@ use Illuminate\Support\Facades\Storage;
 
 class ScanController extends Controller
 {
-    private string $pythonServiceUrl = 'http://127.0.0.1:8001';
+    private string $pythonServiceUrl;
+
+public function __construct()
+{
+    $this->pythonServiceUrl = env('PYTHON_SERVICE_URL', 'http://127.0.0.1:8001');
+}
 
     // ── Process scan ───────────────────────────────────
     public function process(Request $request)
@@ -29,13 +34,18 @@ class ScanController extends Controller
             $imagePath = $request->file('image')->store('scans', 'public');
 
             // Step 2 — Send to Python service
-            $response = Http::timeout(30)->attach(
-                'file',
-                file_get_contents(storage_path('app/public/' . $imagePath)),
-                'garment.jpg'
-            )->post($this->pythonServiceUrl . '/measure',[
-                'garment_type' => $request->input('garment_type'),
-            ]);
+            $response = Http::timeout(150)
+    ->attach(
+        'file',
+        file_get_contents(storage_path('app/public/' . $imagePath)),
+        'garment.jpg'
+    )
+    ->attach(
+        'garment_type',
+        $request->input('garment_type', 'shirt'),
+        ''
+    )
+    ->post($this->pythonServiceUrl . '/measure');
 
             if (!$response->successful()) {
                 $this->cleanupImage($imagePath);
