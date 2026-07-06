@@ -96,7 +96,7 @@ class WidgetController extends Controller
         // Step 4 — Load size charts
         $query = SizeChart::where('user_id', $merchant->id)
             ->where('is_active', true)
-            ->whereRaw('LOWER(category) LIKE ?', ['%' . strtolower($rawCategory) . '%']);
+            ->whereRaw('LOWER(category) LIKE ?', ['%' . strtolower($mlCategory) . '%']);
 
         if ($brandId > 0) {
             $query->where('brand_id', $brandId);
