@@ -1013,23 +1013,17 @@ class _CameraScreenState extends State<CameraScreen> {
               builder: (context) => ResultsScreen(
                 imagePath: image.path,
                 garmentType: selectedGarment,
+                rawMeasurements: measurements,              // ← ADD this line
                 measurements: {
                   'Chest':    '${measurements['chest']    ?? '0'} cm',
                   'Waist':    '${measurements['waist']    ?? '0'} cm',
                   'Length':   '${measurements['length']   ?? '0'} cm',
                   'Shoulder': '${measurements['shoulder'] ?? '0'} cm',
                   'Sleeve':   '${measurements['sleeve']   ?? '0'} cm',
-                  'Shoe Length':   '${measurements['shoe_length']  ?? '0'} cm',
-                  'Shoe Width':    '${measurements['shoe_width']   ?? '0'} cm',
-                  'Heel Width':    '${measurements['heel_width']   ?? '0'} cm',
-                  'EU Size':       '${measurements['shoe_size_eu'] ?? '0'}',
-                  'UK Size':       '${measurements['shoe_size_uk'] ?? '0'}',
-                  'US Size':       '${measurements['shoe_size_us'] ?? '0'}',
-                  'Fits Foot':     '${measurements['fits_foot_min'] ?? '0'}-${measurements['fits_foot_max'] ?? '0'} cm',
-
                 },
                 sizeSuggestion: sizeSuggestion,
               ),
+
             ),
           );
         }
@@ -1226,24 +1220,18 @@ class _CameraScreenState extends State<CameraScreen> {
               MaterialPageRoute(
                 builder: (context) => ResultsScreen(
                   imagePath: image.path,
+                  garmentType: selectedGarment,
+                  rawMeasurements: measurements,              // ← ADD this line
                   measurements: {
                     'Chest':    '${measurements['chest']    ?? '0'} cm',
                     'Waist':    '${measurements['waist']    ?? '0'} cm',
                     'Length':   '${measurements['length']   ?? '0'} cm',
                     'Shoulder': '${measurements['shoulder'] ?? '0'} cm',
                     'Sleeve':   '${measurements['sleeve']   ?? '0'} cm',
-                    'Shoe Length':   '${measurements['shoe_length']  ?? '0'} cm',
-                    'Shoe Width':    '${measurements['shoe_width']   ?? '0'} cm',
-                    'Heel Width':    '${measurements['heel_width']   ?? '0'} cm',
-                    'EU Size':       '${measurements['shoe_size_eu'] ?? '0'}',
-                    'UK Size':       '${measurements['shoe_size_uk'] ?? '0'}',
-                    'US Size':       '${measurements['shoe_size_us'] ?? '0'}',
-                    'Fits Foot':     '${measurements['fits_foot_min'] ?? '0'}-${measurements['fits_foot_max'] ?? '0'} cm',
-
                   },
-                  garmentType: selectedGarment,
                   sizeSuggestion: sizeSuggestion,
                 ),
+
               ),
             );
           }
@@ -1669,12 +1657,15 @@ class ResultsScreen extends StatefulWidget {
   final String imagePath;
   final Map<String, dynamic>? sizeSuggestion;
   final String garmentType;
+  final Map<String, dynamic> rawMeasurements;
+
 
   const ResultsScreen({
     super.key,
     required this.measurements,
     required this.imagePath,
     required this.garmentType,
+    required this.rawMeasurements,
     this.sizeSuggestion,
 
   });
@@ -1905,7 +1896,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
               child: widget.garmentType == 'shoe'
                   ? ListView(
                 children: [
-                  _ShoeResultCard(measurements: widget.measurements),
+                  _ShoeResultCard(measurements: widget.rawMeasurements),
                 ],
               )
                   : ListView(
@@ -4062,10 +4053,38 @@ class _OverlayCheckItem extends StatelessWidget {
   }
 }
 
-class _ShoeResultCard extends StatelessWidget {
+class _ShoeResultCard extends StatefulWidget {
   final Map<String, dynamic> measurements;
 
   const _ShoeResultCard({required this.measurements});
+
+  @override
+  State<_ShoeResultCard> createState() => _ShoeResultCardState();
+}
+
+class _ShoeResultCardState extends State<_ShoeResultCard> {
+  late TextEditingController _lengthController;
+  late TextEditingController _widthController;
+  late TextEditingController _heelController;
+
+  @override
+  void initState() {
+    super.initState();
+    _lengthController = TextEditingController(
+        text: widget.measurements['shoe_length']?.toString() ?? '0');
+    _widthController = TextEditingController(
+        text: widget.measurements['shoe_width']?.toString() ?? '0');
+    _heelController = TextEditingController(
+        text: widget.measurements['heel_width']?.toString() ?? '0');
+  }
+
+  @override
+  void dispose() {
+    _lengthController.dispose();
+    _widthController.dispose();
+    _heelController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -4084,15 +4103,56 @@ class _ShoeResultCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _SizeBox(label: 'EU', value: '${measurements['shoe_size_eu']}'),
-              _SizeBox(label: 'UK', value: '${measurements['shoe_size_uk']}'),
-              _SizeBox(label: 'US', value: '${measurements['shoe_size_us']}'),
+              _SizeBox(
+                  label: 'EU',
+                  value: widget.measurements['shoe_size_eu']?.toString() ?? '-'),
+              _SizeBox(
+                  label: 'UK',
+                  value: widget.measurements['shoe_size_uk']?.toString() ?? '-'),
+              _SizeBox(
+                  label: 'US',
+                  value: widget.measurements['shoe_size_us']?.toString() ?? '-'),
             ],
           ),
-          const SizedBox(height: 16),
-          Text('Foot Length: ${measurements['foot_length']} cm'),
-          Text('Foot Width:  ${measurements['foot_width']} cm'),
-          Text('Arch Length: ${measurements['arch_length']} cm'),
+          const SizedBox(height: 20),
+          const Text('Edit if needed:',
+              style: TextStyle(fontSize: 13, color: Colors.grey)),
+          const SizedBox(height: 8),
+          _editableField('Shoe Length (cm)', _lengthController),
+          _editableField('Shoe Width (cm)',  _widthController),
+          _editableField('Heel Width (cm)',  _heelController),
+        ],
+      ),
+    );
+  }
+
+  Widget _editableField(String label, TextEditingController controller) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 160,
+            child: Text(label,
+                style: const TextStyle(fontSize: 14, color: Color(0xFF333333))),
+          ),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                suffixText: 'cm',
+                filled: true,
+                fillColor: const Color(0xFFF5F5F5),
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 8),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
