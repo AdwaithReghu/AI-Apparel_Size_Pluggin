@@ -1,0 +1,613 @@
+diff --git a/garment_api/app/Filament/Resources/SizeCharts/Pages/ListSizeCharts.php b/garment_api/app/Filament/Resources/SizeCharts/Pages/ListSizeCharts.php
+index e93faf8..5c19072 100644
+--- a/garment_api/app/Filament/Resources/SizeCharts/Pages/ListSizeCharts.php
++++ b/garment_api/app/Filament/Resources/SizeCharts/Pages/ListSizeCharts.php
+@@ -3,7 +3,9 @@
+ namespace App\Filament\Resources\SizeCharts\SizeChartResource\Pages;
+ 
+ use App\Filament\Resources\SizeCharts\SizeChartResource;
++use App\Services\SizingModelRebuilder;
+ use Filament\Actions;
++use Filament\Notifications\Notification;
+ use Filament\Resources\Pages\ListRecords;
+ 
+ class ListSizeCharts extends ListRecords
+@@ -14,6 +16,34 @@ protected function getHeaderActions(): array
+     {
+         return [
+             Actions\CreateAction::make(),
++            Actions\Action::make('rebuildModel')
++                ->label('Rebuild sizing model')
++                ->icon('heroicon-o-cpu-chip')
++                ->color('primary')
++                ->requiresConfirmation()
++                ->modalHeading('Rebuild the AI sizing model?')
++                ->modalDescription('This retrains the sizing model on all your active size charts so every scanned brand is recognised. It can take up to a minute or two.')
++                ->action(function () {
++                    $result = app(SizingModelRebuilder::class)->rebuildForUser(auth()->user());
++
++                    if ($result['success']) {
++                        Notification::make()
++                            ->title('Sizing model rebuilt')
++                            ->body(sprintf(
++                                'Trained %d brand(s) from %s rows.',
++                                count($result['brands_trained'] ?? []),
++                                number_format($result['rows_generated'] ?? 0)
++                            ))
++                            ->success()
++                            ->send();
++                    } else {
++                        Notification::make()
++                            ->title('Rebuild failed')
++                            ->body($result['message'] ?? 'Unknown error')
++                            ->danger()
++                            ->send();
++                    }
++                }),
+         ];
+     }
+ }
+\ No newline at end of file
+diff --git a/garment_api/app/Filament/Resources/SizeCharts/Schemas/SizeChartForm.php b/garment_api/app/Filament/Resources/SizeCharts/Schemas/SizeChartForm.php
+index cbf4139..5750c55 100644
+--- a/garment_api/app/Filament/Resources/SizeCharts/Schemas/SizeChartForm.php
++++ b/garment_api/app/Filament/Resources/SizeCharts/Schemas/SizeChartForm.php
+@@ -2,6 +2,7 @@
+ 
+ namespace App\Filament\Resources\SizeCharts\Schemas;
+ 
++use Filament\Forms\Components\Select;
+ use Filament\Forms\Components\TextInput;
+ use Filament\Forms\Components\Toggle;
+ use Filament\Schemas\Schema;
+@@ -21,6 +22,34 @@ public static function configure(Schema $schema): Schema
+                     ->required(),
+                 TextInput::make('size_label')
+                     ->required(),
++
++                // ── Target-shopper attributes for the sizing model training (Workstream 2) ──
++                Select::make('target_gender')
++                    ->label('Target gender')
++                    ->options(['men' => 'Men', 'women' => 'Women', 'unisex' => 'Unisex'])
++                    ->helperText('Who this size is cut for — used to train the AI model.'),
++                TextInput::make('weight_min')
++                    ->label('Weight min (kg)')
++                    ->numeric(),
++                TextInput::make('weight_max')
++                    ->label('Weight max (kg)')
++                    ->numeric(),
++                TextInput::make('age_min')
++                    ->label('Age min')
++                    ->numeric(),
++                TextInput::make('age_max')
++                    ->label('Age max')
++                    ->numeric(),
++                Select::make('body_types')
++                    ->label('Body type(s) this size suits')
++                    ->multiple()
++                    ->options([
++                        'slim'     => 'Slim',
++                        'regular'  => 'Regular',
++                        'athletic' => 'Athletic',
++                        'curvy'    => 'Curvy',
++                    ]),
++
+                 TextInput::make('chest_min')
+                     ->numeric(),
+                 TextInput::make('chest_max')
+diff --git a/garment_api/app/Http/Controllers/Api/ModelController.php b/garment_api/app/Http/Controllers/Api/ModelController.php
+new file mode 100644
+index 0000000..8260df9
+--- /dev/null
++++ b/garment_api/app/Http/Controllers/Api/ModelController.php
+@@ -0,0 +1,21 @@
++<?php
++
++namespace App\Http\Controllers\Api;
++
++use App\Http\Controllers\Controller;
++use App\Services\SizingModelRebuilder;
++use Illuminate\Http\Request;
++
++class ModelController extends Controller
++{
++    /**
++     * Rebuild the sizing model from this merchant's size charts.
++     * Called by the Flutter app / dashboard after scanning or editing charts.
++     */
++    public function rebuild(Request $request, SizingModelRebuilder $rebuilder)
++    {
++        $result = $rebuilder->rebuildForUser($request->user());
++
++        return response()->json($result, $result['success'] ? 200 : 422);
++    }
++}
+diff --git a/garment_api/app/Http/Controllers/Api/WidgetController.php b/garment_api/app/Http/Controllers/Api/WidgetController.php
+index f3f3f82..303ab7e 100644
+--- a/garment_api/app/Http/Controllers/Api/WidgetController.php
++++ b/garment_api/app/Http/Controllers/Api/WidgetController.php
+@@ -6,49 +6,29 @@
+ use App\Models\User;
+ use App\Models\Brand;
+ use App\Models\SizeChart;
++use App\Support\SizingNormalizer;
+ use Illuminate\Http\Request;
+ use Illuminate\Support\Facades\Http;
+ 
+ class WidgetController extends Controller
+ {
+-    // ── Category name normalizer ───────────────────────
+-    private function normalizeCategory(string $category): string
+-    {
+-        $cat = strtolower(trim($category));
+-
+-        $map = [
+-            't-shirt'       => ['t-shirt', 'tshirt', 'tshirts', 'tees', 'tee'],
+-            'formal-shirt'  => ['shirt', 'shirts', 'formal shirt', 'formal shirts'],
+-            'jeans'         => ['jeans', 'denim'],
+-            'hoodie'        => ['hoodie', 'hoodies', 'sweatshirt', 'sweatshirts'],
+-            'jacket'        => ['jacket', 'jackets'],
+-            'dress'         => ['dress', 'dresses'],
+-            'shorts'        => ['shorts'],
+-        ];
+-
+-        foreach ($map as $mlCategory => $keywords) {
+-            foreach ($keywords as $keyword) {
+-                if (str_contains($cat, $keyword)) {
+-                    return $mlCategory;
+-                }
+-            }
+-        }
+-
+-        return 'other';
+-    }
+-
+     // ── Transform size chart row to ML format ──────────
+     private function transformSizeChart(SizeChart $chart): array
+     {
+         $measurements = [];
+ 
++        // Include every measurement the matcher can score on — tops need
++        // shoulder & sleeve, bottoms need hip/thigh/inseam. (shoulder & sleeve
++        // used to be silently dropped here.)
+         $fields = [
+-            'chest'   => ['chest_min',   'chest_max'],
+-            'waist'   => ['waist_min',   'waist_max'],
+-            'length'  => ['length_min',  'length_max'],
+-            'hip'     => ['hip_min',     'hip_max'],
+-            'thigh'   => ['thigh_min',   'thigh_max'],
+-            'inseam'  => ['inseam_min',  'inseam_max'],
++            'chest'    => ['chest_min',    'chest_max'],
++            'waist'    => ['waist_min',    'waist_max'],
++            'length'   => ['length_min',   'length_max'],
++            'shoulder' => ['shoulder_min', 'shoulder_max'],
++            'sleeve'   => ['sleeve_min',   'sleeve_max'],
++            'hip'      => ['hip_min',      'hip_max'],
++            'thigh'    => ['thigh_min',    'thigh_max'],
++            'inseam'   => ['inseam_min',   'inseam_max'],
+         ];
+ 
+         foreach ($fields as $key => [$minCol, $maxCol]) {
+@@ -70,7 +50,7 @@ private function transformSizeChart(SizeChart $chart): array
+     public function predictSize(Request $request)
+     {
+         // Step 1 — Authenticate via X-Widget-Key
+-        $apiKey  = $request->header('X-Widget-Key');
++        $apiKey   = $request->header('X-Widget-Key');
+         $merchant = User::where('api_key', $apiKey)->first();
+ 
+         if (!$merchant) {
+@@ -80,29 +60,32 @@ public function predictSize(Request $request)
+             ], 401);
+         }
+ 
+-        // Step 2 — Resolve brand
+-        $brandName = $request->input('brand', '');
+-        $brand     = Brand::where('user_id', $merchant->id)
+-            ->whereRaw('LOWER(name) = ?', [strtolower($brandName)])
+-            ->first();
++        // Step 2 — Resolve brand by CANONICAL KEY (Workstream 0/1).
++        // PrestaShop may send "Levi's" while the merchant stored "Levis" — both
++        // normalize to "levis". Never 404 on brand alone.
++        $rawBrand = (string) $request->input('brand', '');
++        $brandKey = SizingNormalizer::brandKey($rawBrand);
++
++        $brand = Brand::where('user_id', $merchant->id)->get()
++            ->first(fn($b) => SizingNormalizer::brandKey($b->name) === $brandKey);
+ 
+         $brandId          = $brand?->id ?? 0;
++        $brandName        = $brand?->name ?? $rawBrand;          // resolved display name
+         $sizingPhilosophy = $brand?->sizing_philosophy ?? null;
+ 
+-        // Step 3 — Normalize category
+-        $rawCategory    = $request->input('category', '');
+-        $mlCategory     = $this->normalizeCategory($rawCategory);
+-
+-        // Step 4 — Load size charts
+-        $query = SizeChart::where('user_id', $merchant->id)
+-            ->where('is_active', true)
+-            ->whereRaw('LOWER(category) LIKE ?', ['%' . strtolower($mlCategory) . '%']);
++        // Step 3 — Normalize category to a canonical slug.
++        $mlCategory = SizingNormalizer::categorySlug((string) $request->input('category', ''));
+ 
++        // Step 4 — Load charts, then match category by NORMALIZED EQUALITY (not
++        // LIKE) so "Hoodies"/"hoodie"/"Sweatshirts" all resolve identically.
++        $query = SizeChart::where('user_id', $merchant->id)->where('is_active', true);
+         if ($brandId > 0) {
+             $query->where('brand_id', $brandId);
+         }
+ 
+-        $sizeCharts = $query->get();
++        $sizeCharts = $query->get()->filter(
++            fn($chart) => SizingNormalizer::categorySlug($chart->category) === $mlCategory
++        )->values();
+ 
+         if ($sizeCharts->isEmpty()) {
+             return response()->json([
+@@ -115,13 +98,17 @@ public function predictSize(Request $request)
+             fn($chart) => $this->transformSizeChart($chart)
+         )->values()->toArray();
+ 
+-        // Step 5 — Call ML service
++        // Step 5 — Call sizing service. Send BOTH the canonical keys (for the sizing model's
++        // one-hot) and the display name (for explanations). brand_key/category
++        // are produced by the same SizingNormalizer used by the training export,
++        // so training and inference keys are byte-identical (Workstream 0).
+         $shopper = $request->input('shopper', []);
+         $fitType = $request->input('fit_type', 'regular');
+ 
+         $payload = [
+             'brand_id'          => $brandId,
+             'brand_name'        => $brandName,
++            'brand_key'         => $brandKey,
+             'apparel_category'  => $mlCategory,
+             'gender'            => $shopper['gender'] ?? 'men',
+             'fit_type'          => $fitType,
+@@ -142,7 +129,7 @@ public function predictSize(Request $request)
+             if (!$response->successful()) {
+                 return response()->json([
+                     'success' => false,
+-                    'message' => 'ML service error: ' . $response->status(),
++                    'message' => 'sizing service error: ' . $response->status(),
+                 ], 502);
+             }
+ 
+@@ -152,8 +139,8 @@ public function predictSize(Request $request)
+         } catch (\Exception $e) {
+             return response()->json([
+                 'success' => false,
+-                'message' => 'ML service unavailable: ' . $e->getMessage(),
++                'message' => 'sizing service unavailable: ' . $e->getMessage(),
+             ], 503);
+         }
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/garment_api/app/Models/SizeChart.php b/garment_api/app/Models/SizeChart.php
+index 6e74c6a..1f3eb8d 100644
+--- a/garment_api/app/Models/SizeChart.php
++++ b/garment_api/app/Models/SizeChart.php
+@@ -14,6 +14,14 @@ class SizeChart extends Model
+         'brand_id',
+         'category',
+         'size_label',
++        // merchant-declared target-shopper attributes (Workstream 2)
++        'target_gender',
++        'weight_min',
++        'weight_max',
++        'age_min',
++        'age_max',
++        'body_types',
++        // ArUco / merchant garment measurements
+         'chest_min',
+         'chest_max',
+         'waist_min',
+@@ -24,11 +32,22 @@ class SizeChart extends Model
+         'shoulder_max',
+         'sleeve_min',
+         'sleeve_max',
++        'hip_min',
++        'hip_max',
++        'thigh_min',
++        'thigh_max',
++        'inseam_min',
++        'inseam_max',
+         'is_active',
+     ];
+ 
+     protected $casts = [
+         'is_active'    => 'boolean',
++        'body_types'   => 'array',
++        'weight_min'   => 'float',
++        'weight_max'   => 'float',
++        'age_min'      => 'integer',
++        'age_max'      => 'integer',
+         'chest_min'    => 'float',
+         'chest_max'    => 'float',
+         'waist_min'    => 'float',
+@@ -39,6 +58,12 @@ class SizeChart extends Model
+         'shoulder_max' => 'float',
+         'sleeve_min'   => 'float',
+         'sleeve_max'   => 'float',
++        'hip_min'      => 'float',
++        'hip_max'      => 'float',
++        'thigh_min'    => 'float',
++        'thigh_max'    => 'float',
++        'inseam_min'   => 'float',
++        'inseam_max'   => 'float',
+     ];
+ 
+     public function brand()
+diff --git a/garment_api/app/Services/SizingModelRebuilder.php b/garment_api/app/Services/SizingModelRebuilder.php
+new file mode 100644
+index 0000000..7a1d0b7
+--- /dev/null
++++ b/garment_api/app/Services/SizingModelRebuilder.php
+@@ -0,0 +1,127 @@
++<?php
++
++namespace App\Services;
++
++use App\Models\SizeChart;
++use App\Models\User;
++use App\Support\SizingNormalizer;
++use Illuminate\Support\Facades\Http;
++use Illuminate\Support\Facades\Log;
++
++/**
++ * Workstream 2 — gather a merchant's size charts into per-brand bundles and ask
++ * the sizing service to rebuild the sizing model so every scanned brand becomes a known brand.
++ *
++ * Uses the SAME SizingNormalizer as WidgetController, so the brand_key/category
++ * used to TRAIN match the ones used at INFERENCE (Workstream 0 — Join B).
++ */
++class SizingModelRebuilder
++{
++    /** Build bundles for this merchant and trigger the ML rebuild. */
++    public function rebuildForUser(User $user): array
++    {
++        $charts = SizeChart::where('user_id', $user->id)
++            ->where('is_active', true)
++            ->with('brand')
++            ->get();
++
++        $bundles = $this->buildBundles($charts);
++
++        if (empty($bundles)) {
++            return [
++                'success' => false,
++                'message' => 'No brand-linked, categorized size charts to train on. '
++                    . 'Add charts with a brand + category first.',
++            ];
++        }
++
++        try {
++            $response = Http::timeout(300) // rebuild retrains the whole model
++                ->withHeaders(['X-Service-Secret' => env('PYTHON_API_SECRET')])
++                ->post(env('ML_API_URL') . '/rebuild-model', ['bundles' => $bundles]);
++
++            if (!$response->successful()) {
++                return [
++                    'success' => false,
++                    'message' => 'Sizing update failed: HTTP ' . $response->status(),
++                    'detail'  => $response->json(),
++                ];
++            }
++
++            $result = $response->json();
++            Log::info('Sizing model rebuilt', ['user_id' => $user->id, 'result' => $result]);
++
++            return [
++                'success'        => true,
++                'message'        => 'Sizing model rebuilt.',
++                'brands_trained' => $result['brands_trained'] ?? [],
++                'rows_generated' => $result['rows_generated'] ?? 0,
++                'accuracy'       => $result['accuracy'] ?? null,
++            ];
++        } catch (\Exception $e) {
++            return [
++                'success' => false,
++                'message' => 'sizing service unavailable: ' . $e->getMessage(),
++            ];
++        }
++    }
++
++    /** Group active charts into (brand_key, category_slug) bundles. */
++    private function buildBundles($charts): array
++    {
++        $groups = [];
++
++        foreach ($charts as $chart) {
++            $brand = $chart->brand;
++            if (!$brand) {
++                continue; // need a brand to train a brand feature
++            }
++
++            $bkey = SizingNormalizer::brandKey($brand->name);
++            $slug = SizingNormalizer::categorySlug($chart->category);
++            if ($bkey === '' || $slug === 'other') {
++                continue;
++            }
++
++            $key = $bkey . '|' . $slug;
++            if (!isset($groups[$key])) {
++                $groups[$key] = [
++                    'brand_key'         => $bkey,
++                    'brand_name'        => $brand->name,
++                    'category_slug'     => $slug,
++                    'gender'            => $chart->target_gender ?: 'men',
++                    'sizing_philosophy' => $brand->sizing_philosophy,
++                    'size_rows'         => [],
++                ];
++            }
++
++            $groups[$key]['size_rows'][] = [
++                'size_label'    => $chart->size_label,
++                'target_gender' => $chart->target_gender,
++                'weight_min'    => $chart->weight_min,
++                'weight_max'    => $chart->weight_max,
++                'age_min'       => $chart->age_min,
++                'age_max'       => $chart->age_max,
++                'body_types'    => $chart->body_types,
++                'chest_min'     => $chart->chest_min,
++                'chest_max'     => $chart->chest_max,
++                'waist_min'     => $chart->waist_min,
++                'waist_max'     => $chart->waist_max,
++                'shoulder_min'  => $chart->shoulder_min,
++                'shoulder_max'  => $chart->shoulder_max,
++                'sleeve_min'    => $chart->sleeve_min,
++                'sleeve_max'    => $chart->sleeve_max,
++                'length_min'    => $chart->length_min,
++                'length_max'    => $chart->length_max,
++                'hip_min'       => $chart->hip_min,
++                'hip_max'       => $chart->hip_max,
++                'thigh_min'     => $chart->thigh_min,
++                'thigh_max'     => $chart->thigh_max,
++                'inseam_min'    => $chart->inseam_min,
++                'inseam_max'    => $chart->inseam_max,
++            ];
++        }
++
++        return array_values($groups);
++    }
++}
+diff --git a/garment_api/app/Support/SizingNormalizer.php b/garment_api/app/Support/SizingNormalizer.php
+new file mode 100644
+index 0000000..f8dab32
+--- /dev/null
++++ b/garment_api/app/Support/SizingNormalizer.php
+@@ -0,0 +1,67 @@
++<?php
++
++namespace App\Support;
++
++/**
++ * Canonical brand/category identity for the sizing model (Workstream 0).
++ *
++ * The SAME two functions must produce the keys used both at INFERENCE
++ * (WidgetController -> /predict-size) and at TRAINING export
++ * (MerchantController -> /rebuild-model). If they ever diverge, the sizing model's
++ * one-hot brand/category columns won't fire and it will silently return
++ * a generic, brand-blind size. Keep this the single source of truth.
++ */
++class SizingNormalizer
++{
++    /**
++     * Canonical brand key: lowercase, strip everything non-alphanumeric.
++     *   "Levi's" -> "levis", "H & M" -> "hm", "Jack & Jones" -> "jackjones"
++     */
++    public static function brandKey(?string $name): string
++    {
++        return preg_replace('/[^a-z0-9]/', '', strtolower(trim((string) $name)));
++    }
++
++    /**
++     * Canonical category slug. Matches the raw category text against a keyword
++     * map using LONGEST keyword first (so "sweatshirt" beats "shirt" and
++     * "tshirt" beats "shirt"), after stripping punctuation/spaces.
++     *   "T Shirts" / "TShirts" / "Tees" -> "t-shirt"
++     *   "Sweatshirts" -> "hoodie" (NOT formal-shirt)
++     */
++    public static function categorySlug(?string $category): string
++    {
++        $s = preg_replace('/[^a-z0-9]/', '', strtolower((string) $category));
++        if ($s === '') {
++            return 'other';
++        }
++
++        // slug => keywords (will be normalized + sorted longest-first below)
++        $map = [
++            't-shirt'      => ['tshirt', 'tshirts', 'tee', 'tees'],
++            'formal-shirt' => ['formalshirt', 'formalshirts', 'shirt', 'shirts'],
++            'jeans'        => ['jeans', 'denim', 'trouser', 'trousers', 'pant', 'pants', 'chino', 'chinos'],
++            'hoodie'       => ['hoodie', 'hoodies', 'sweatshirt', 'sweatshirts', 'pullover', 'sweater', 'jumper'],
++            'jacket'       => ['jacket', 'jackets', 'blazer', 'blazers', 'coat', 'coats'],
++            'dress'        => ['dress', 'dresses', 'gown', 'gowns', 'frock'],
++            'shorts'       => ['shorts', 'short'],
++        ];
++
++        // Flatten to [normalizedKeyword => slug], then sort by keyword length desc.
++        $pairs = [];
++        foreach ($map as $slug => $keywords) {
++            foreach ($keywords as $kw) {
++                $pairs[preg_replace('/[^a-z0-9]/', '', $kw)] = $slug;
++            }
++        }
++        uksort($pairs, fn($a, $b) => strlen($b) <=> strlen($a));
++
++        foreach ($pairs as $kw => $slug) {
++            if ($kw !== '' && str_contains($s, $kw)) {
++                return $slug;
++            }
++        }
++
++        return 'other';
++    }
++}
+diff --git a/garment_api/database/migrations/2026_07_09_000000_add_shopper_targets_to_size_charts.php b/garment_api/database/migrations/2026_07_09_000000_add_shopper_targets_to_size_charts.php
+new file mode 100644
+index 0000000..c80b805
+--- /dev/null
++++ b/garment_api/database/migrations/2026_07_09_000000_add_shopper_targets_to_size_charts.php
+@@ -0,0 +1,38 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++/**
++ * Workstream 2 — merchant-declared target-shopper attributes per size.
++ *
++ * ArUco already fills the garment measurement columns (chest/waist/…). These
++ * new columns hold what the merchant declares for each size during scanning:
++ * which shoppers that size is cut for. They are the sizing model's own features, so they
++ * turn every scanned brand into a "known brand" the model can predict for.
++ */
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::table('size_charts', function (Blueprint $table) {
++            $table->string('target_gender', 20)->nullable()->after('size_label'); // men|women|unisex
++            $table->decimal('weight_min', 6, 2)->nullable()->after('target_gender');
++            $table->decimal('weight_max', 6, 2)->nullable()->after('weight_min');
++            $table->unsignedSmallInteger('age_min')->nullable()->after('weight_max');
++            $table->unsignedSmallInteger('age_max')->nullable()->after('age_min');
++            $table->json('body_types')->nullable()->after('age_max'); // ["slim","athletic"]
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::table('size_charts', function (Blueprint $table) {
++            $table->dropColumn([
++                'target_gender', 'weight_min', 'weight_max',
++                'age_min', 'age_max', 'body_types',
++            ]);
++        });
++    }
++};
+diff --git a/garment_api/routes/api.php b/garment_api/routes/api.php
+index 2933c9d..815fd55 100644
+--- a/garment_api/routes/api.php
++++ b/garment_api/routes/api.php
+@@ -6,6 +6,7 @@
+ use App\Http\Controllers\Api\ScanController;
+ use App\Http\Controllers\Api\DashboardController;
+ use App\Http\Controllers\Api\WidgetController;
++use App\Http\Controllers\Api\ModelController;
+ 
+ // ─── PUBLIC ROUTES (no auth needed) ───────────────────
+ Route::post('/login', [AuthController::class, 'login']);
+@@ -62,5 +63,8 @@
+     Route::post('/size/predict', [ScanController::class, 'predictSize']);
+     Route::post('/model/retrain', [ScanController::class, 'retrain']);
+ 
++    // Chart-driven rebuild — makes every scanned brand recognised by the sizing model
++    Route::post('/model/rebuild', [ModelController::class, 'rebuild']);
++
+     Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
+ });
+\ No newline at end of file

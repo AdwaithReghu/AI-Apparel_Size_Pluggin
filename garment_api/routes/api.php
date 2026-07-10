@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\GarmentController;
 use App\Http\Controllers\Api\ScanController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\WidgetController;
+use App\Http\Controllers\Api\ModelController;
 
 // ─── PUBLIC ROUTES (no auth needed) ───────────────────
 Route::post('/login', [AuthController::class, 'login']);
@@ -61,6 +62,9 @@ Route::get('/categories', function(\Illuminate\Http\Request $request) {
 
     Route::post('/size/predict', [ScanController::class, 'predictSize']);
     Route::post('/model/retrain', [ScanController::class, 'retrain']);
+
+    // Chart-driven rebuild — makes every scanned brand recognised by the sizing model
+    Route::post('/model/rebuild', [ModelController::class, 'rebuild']);
 
     Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
 });

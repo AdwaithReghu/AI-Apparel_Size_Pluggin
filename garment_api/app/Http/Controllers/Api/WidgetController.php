@@ -6,49 +6,29 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Brand;
 use App\Models\SizeChart;
+use App\Support\SizingNormalizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 
 class WidgetController extends Controller
 {
-    // ── Category name normalizer ───────────────────────
-    private function normalizeCategory(string $category): string
-    {
-        $cat = strtolower(trim($category));
-
-        $map = [
-            't-shirt'       => ['t-shirt', 'tshirt', 'tshirts', 'tees', 'tee'],
-            'formal-shirt'  => ['shirt', 'shirts', 'formal shirt', 'formal shirts'],
-            'jeans'         => ['jeans', 'denim'],
-            'hoodie'        => ['hoodie', 'hoodies', 'sweatshirt', 'sweatshirts'],
-            'jacket'        => ['jacket', 'jackets'],
-            'dress'         => ['dress', 'dresses'],
-            'shorts'        => ['shorts'],
-        ];
-
-        foreach ($map as $mlCategory => $keywords) {
-            foreach ($keywords as $keyword) {
-                if (str_contains($cat, $keyword)) {
-                    return $mlCategory;
-                }
-            }
-        }
-
-        return 'other';
-    }
-
     // ── Transform size chart row to ML format ──────────
     private function transformSizeChart(SizeChart $chart): array
     {
         $measurements = [];
 
+        // Include every measurement the matcher can score on — tops need
+        // shoulder & sleeve, bottoms need hip/thigh/inseam. (shoulder & sleeve
+        // used to be silently dropped here.)
         $fields = [
-            'chest'   => ['chest_min',   'chest_max'],
-            'waist'   => ['waist_min',   'waist_max'],
-            'length'  => ['length_min',  'length_max'],
-            'hip'     => ['hip_min',     'hip_max'],
-            'thigh'   => ['thigh_min',   'thigh_max'],
-            'inseam'  => ['inseam_min',  'inseam_max'],
+            'chest'    => ['chest_min',    'chest_max'],
+            'waist'    => ['waist_min',    'waist_max'],
+            'length'   => ['length_min',   'length_max'],
+            'shoulder' => ['shoulder_min', 'shoulder_max'],
+            'sleeve'   => ['sleeve_min',   'sleeve_max'],
+            'hip'      => ['hip_min',      'hip_max'],
+            'thigh'    => ['thigh_min',    'thigh_max'],
+            'inseam'   => ['inseam_min',   'inseam_max'],
         ];
 
         foreach ($fields as $key => [$minCol, $maxCol]) {
@@ -70,7 +50,7 @@ class WidgetController extends Controller
     public function predictSize(Request $request)
     {
         // Step 1 — Authenticate via X-Widget-Key
-        $apiKey  = $request->header('X-Widget-Key');
+        $apiKey   = $request->header('X-Widget-Key');
         $merchant = User::where('api_key', $apiKey)->first();
 
         if (!$merchant) {
@@ -80,29 +60,32 @@ class WidgetController extends Controller
             ], 401);
         }
 
-        // Step 2 — Resolve brand
-        $brandName = $request->input('brand', '');
-        $brand     = Brand::where('user_id', $merchant->id)
-            ->whereRaw('LOWER(name) = ?', [strtolower($brandName)])
-            ->first();
+        // Step 2 — Resolve brand by CANONICAL KEY (Workstream 0/1).
+        // PrestaShop may send "Levi's" while the merchant stored "Levis" — both
+        // normalize to "levis". Never 404 on brand alone.
+        $rawBrand = (string) $request->input('brand', '');
+        $brandKey = SizingNormalizer::brandKey($rawBrand);
+
+        $brand = Brand::where('user_id', $merchant->id)->get()
+            ->first(fn($b) => SizingNormalizer::brandKey($b->name) === $brandKey);
 
         $brandId          = $brand?->id ?? 0;
+        $brandName        = $brand?->name ?? $rawBrand;          // resolved display name
         $sizingPhilosophy = $brand?->sizing_philosophy ?? null;
 
-        // Step 3 — Normalize category
-        $rawCategory    = $request->input('category', '');
-        $mlCategory     = $this->normalizeCategory($rawCategory);
+        // Step 3 — Normalize category to a canonical slug.
+        $mlCategory = SizingNormalizer::categorySlug((string) $request->input('category', ''));
 
-        // Step 4 — Load size charts
-        $query = SizeChart::where('user_id', $merchant->id)
-            ->where('is_active', true)
-            ->whereRaw('LOWER(category) LIKE ?', ['%' . strtolower($mlCategory) . '%']);
-
+        // Step 4 — Load charts, then match category by NORMALIZED EQUALITY (not
+        // LIKE) so "Hoodies"/"hoodie"/"Sweatshirts" all resolve identically.
+        $query = SizeChart::where('user_id', $merchant->id)->where('is_active', true);
         if ($brandId > 0) {
             $query->where('brand_id', $brandId);
         }
 
-        $sizeCharts = $query->get();
+        $sizeCharts = $query->get()->filter(
+            fn($chart) => SizingNormalizer::categorySlug($chart->category) === $mlCategory
+        )->values();
 
         if ($sizeCharts->isEmpty()) {
             return response()->json([
@@ -115,13 +98,17 @@ class WidgetController extends Controller
             fn($chart) => $this->transformSizeChart($chart)
         )->values()->toArray();
 
-        // Step 5 — Call ML service
+        // Step 5 — Call sizing service. Send BOTH the canonical keys (for the sizing model's
+        // one-hot) and the display name (for explanations). brand_key/category
+        // are produced by the same SizingNormalizer used by the training export,
+        // so training and inference keys are byte-identical (Workstream 0).
         $shopper = $request->input('shopper', []);
         $fitType = $request->input('fit_type', 'regular');
 
         $payload = [
             'brand_id'          => $brandId,
             'brand_name'        => $brandName,
+            'brand_key'         => $brandKey,
             'apparel_category'  => $mlCategory,
             'gender'            => $shopper['gender'] ?? 'men',
             'fit_type'          => $fitType,
@@ -142,7 +129,7 @@ class WidgetController extends Controller
             if (!$response->successful()) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'ML service error: ' . $response->status(),
+                    'message' => 'sizing service error: ' . $response->status(),
                 ], 502);
             }
 
@@ -152,7 +139,7 @@ class WidgetController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'ML service unavailable: ' . $e->getMessage(),
+                'message' => 'sizing service unavailable: ' . $e->getMessage(),
             ], 503);
         }
     }

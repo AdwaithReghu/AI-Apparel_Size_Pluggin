@@ -41,33 +41,35 @@ class GarmentController extends Controller
     }
 
     // Create garment
-    public function store(Request $request)
-    {
-        $request->validate([
-            'name'     => 'required|string',
-            'brand'    => 'nullable|string',
-            'category' => 'nullable|string',
-        ]);
+public function store(Request $request)
+{
+    
 
-        $garment = Garment::create([
-        'user_id'    => $request->user()->id,
-        'name'       => $request->name,
-        'brand'      => $request->brand,
-        'category'   => $request->category,
-        'size_label' => $request->size_label,
-        'chest'      => $request->chest,      // ← check this exists
-        'waist'      => $request->waist,      // ← check this exists
-        'length'     => $request->length,     // ← check this exists
-        'shoulder'   => $request->shoulder,   // ← check this exists
-        'sleeve'     => $request->sleeve,     // ← check this exists
-        'status'     => $request->status ?? 'pending',
+    $request->validate([
+        'name'     => 'required|string',  // ← change required to nullable
+        'brand'    => 'required|string',
+        'category' => 'required|string',
     ]);
 
-        return response()->json([
-            'success' => true,
-            'garment' => $garment,
-        ], 201);
-    }
+    $garment = Garment::create([
+        'user_id'    => $request->user()->id,
+        'name'       => $request->input('name', 'Unnamed Garment'),
+        'brand'      => $request->input('brand'),
+        'category'   => $request->input('category'),
+        'size_label' => $request->input('size_label'),
+        'chest'      => $request->input('chest'),
+        'waist'      => $request->input('waist'),
+        'length'     => $request->input('length'),
+        'shoulder'   => $request->input('shoulder'),
+        'sleeve'     => $request->input('sleeve'),
+        'status'     => $request->input('status', 'pending'),
+    ]);
+
+    return response()->json([
+        'success' => true,
+        'garment' => $garment,
+    ], 201);
+}
 
     // Update garment
     public function update(Request $request, $id)

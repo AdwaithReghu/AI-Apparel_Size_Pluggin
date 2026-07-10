@@ -11,22 +11,23 @@ class Garment extends Model
 
     protected $fillable = [
     'user_id',
+    'name',        
+    'brand',       
+    'category',    
+    'size_label',  
     'brand_id',
     'category_id',
     'status',
     'measurements',
     'garment_type',
-    'chest',
-    'waist',
-    'length',
-    'shoulder',
-    'hip',
-    'thigh',
-    'knee',
-    'ankle',
-    'outseam',
-    'inseam',
-    'rise',
+    // shirt fields
+    'chest', 'waist', 'length', 'shoulder', 'sleeve',
+    // pants fields
+    'hip', 'thigh', 'knee', 'ankle', 'outseam', 'inseam', 'rise',
+    // shoe fields
+    'shoe_length', 'shoe_width', 'heel_width',
+    'shoe_size_eu', 'shoe_size_uk', 'shoe_size_us',
+    'fits_foot_min', 'fits_foot_max',
 ];
 
     public function user()

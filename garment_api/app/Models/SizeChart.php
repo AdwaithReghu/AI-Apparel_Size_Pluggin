@@ -14,6 +14,14 @@ class SizeChart extends Model
         'brand_id',
         'category',
         'size_label',
+        // merchant-declared target-shopper attributes (Workstream 2)
+        'target_gender',
+        'weight_min',
+        'weight_max',
+        'age_min',
+        'age_max',
+        'body_types',
+        // ArUco / merchant garment measurements
         'chest_min',
         'chest_max',
         'waist_min',
@@ -24,11 +32,22 @@ class SizeChart extends Model
         'shoulder_max',
         'sleeve_min',
         'sleeve_max',
+        'hip_min',
+        'hip_max',
+        'thigh_min',
+        'thigh_max',
+        'inseam_min',
+        'inseam_max',
         'is_active',
     ];
 
     protected $casts = [
         'is_active'    => 'boolean',
+        'body_types'   => 'array',
+        'weight_min'   => 'float',
+        'weight_max'   => 'float',
+        'age_min'      => 'integer',
+        'age_max'      => 'integer',
         'chest_min'    => 'float',
         'chest_max'    => 'float',
         'waist_min'    => 'float',
@@ -39,6 +58,12 @@ class SizeChart extends Model
         'shoulder_max' => 'float',
         'sleeve_min'   => 'float',
         'sleeve_max'   => 'float',
+        'hip_min'      => 'float',
+        'hip_max'      => 'float',
+        'thigh_min'    => 'float',
+        'thigh_max'    => 'float',
+        'inseam_min'   => 'float',
+        'inseam_max'   => 'float',
     ];
 
     public function brand()

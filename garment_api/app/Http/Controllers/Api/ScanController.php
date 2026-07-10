@@ -261,4 +261,59 @@ public function __construct()
             Storage::disk('public')->delete($imagePath);
         }
     }
+
+public function measureShoe(Request $request)
+{
+    $request->validate([
+        'image' => 'required|image|max:10240',
+    ]);
+
+    $imagePath = null;
+
+    try {
+        $imagePath = $request->file('image')->store('scans', 'public');
+
+        $response = Http::timeout(30)
+            ->attach(
+                'file',
+                file_get_contents(storage_path('app/public/' . $imagePath)),
+                'foot.jpg'
+            )
+            ->post($this->pythonServiceUrl . '/measure-shoe');
+
+        $result = $response->json();
+
+        if (!($result['success'] ?? false)) {
+            $this->cleanupImage($imagePath);
+            return response()->json([
+                'success' => false,
+                'message' => $result['message'] ?? 'Shoe measurement failed',
+            ], 422);
+        }
+
+        // Save scan
+        $scan = Scan::create([
+            'user_id'      => $request->user()->id,
+            'image_path'   => $imagePath,
+            'measurements' => $result['measurements'],
+            'status'       => 'completed',
+            'garment_type' => 'shoe',
+        ]);
+
+        return response()->json([
+            'success'      => true,
+            'scan_id'      => $scan->id,
+            'measurements' => $result['measurements'],
+        ]);
+
+    } catch (\Exception $e) {
+        $this->cleanupImage($imagePath);
+        return response()->json([
+            'success' => false,
+            'message' => 'Processing error: ' . $e->getMessage(),
+        ], 500);
+    }
 }
+}
+
+
