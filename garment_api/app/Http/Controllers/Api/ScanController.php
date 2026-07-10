@@ -24,7 +24,10 @@ public function __construct()
         $request->validate([
             'image'    => 'required|image|max:10240',
             'category' => 'nullable|string|max:100',
-            'garment_type' => 'required|string|in:shirt,pants',
+            'garment_type' => 'required|string|in:shirt,pants,shoe',
+            'shoe_background'  => 'nullable|string|in:white,dark',
+
+            
         ]);
 
         $imagePath = null;
