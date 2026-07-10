@@ -20,10 +20,24 @@ MARKER_SIZE_CM = 8.0
 
 
 # ── Helpers ─────────────────────────────────────────────
+def load_image_shirt(file_bytes: bytes):
+    image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
+    return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+
+
 
 def load_image(file_bytes: bytes):
     image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
-    return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    img   = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+    # Resize to max 1200px — reduces processing time significantly
+    h, w  = img.shape[:2]
+    if max(h, w) > 1200:
+        scale = 1200 / max(h, w)
+        img   = cv2.resize(img, (int(w * scale), int(h * scale)))
+
+    return img
 
 
 def to_python_types(obj):
@@ -113,35 +127,39 @@ def perspective_correction(image, corners):
 
 def segment_garment(warped):
     """
-    Use GrabCut for accurate garment segmentation
-    regardless of garment color.
+    Fast segmentation using HSV thresholding only.
+    No GrabCut — works in < 1 second.
     """
     h, w = warped.shape[:2]
 
-    # Define rectangle where garment likely is (inner 20% margin)
-    margin_x = int(w * 0.12)
-    margin_y = int(h * 0.12)
-    rect = (margin_x, margin_y,
-            w - 2 * margin_x,
-            h - 2 * margin_y)
+    # Resize to max 800px for faster processing
+    scale  = min(1.0, 800 / max(h, w))
+    small  = cv2.resize(warped, (int(w * scale), int(h * scale)))
 
-    # GrabCut
-    mask     = np.zeros((h, w), np.uint8)
-    bgd      = np.zeros((1, 65), np.float64)
-    fgd      = np.zeros((1, 65), np.float64)
+    hsv   = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
 
-    cv2.grabCut(warped, mask, rect, bgd, fgd,
-                5, cv2.GC_INIT_WITH_RECT)
+    # White/light background mask
+    lower_white = np.array([0,   0,   180])
+    upper_white = np.array([180, 50,  255])
+    white_mask  = cv2.inRange(hsv, lower_white, upper_white)
 
-    # 0,2 = background | 1,3 = foreground
-    garment_mask = np.where(
-        (mask == 2) | (mask == 0), 0, 1
-    ).astype('uint8') * 255
+    # Also mask very light grey
+    lower_grey = np.array([0,   0,   160])
+    upper_grey = np.array([180, 25,  255])
+    grey_mask  = cv2.inRange(hsv, lower_grey, upper_grey)
 
-    # Cleanup
-    kernel       = np.ones((11, 11), np.uint8)
+    bg_mask      = cv2.bitwise_or(white_mask, grey_mask)
+    garment_mask = cv2.bitwise_not(bg_mask)
+
+    # Morphological cleanup
+    kernel       = np.ones((7, 7), np.uint8)
     garment_mask = cv2.morphologyEx(garment_mask, cv2.MORPH_CLOSE, kernel)
     garment_mask = cv2.morphologyEx(garment_mask, cv2.MORPH_OPEN,  kernel)
+
+    # Scale mask back to original size
+    garment_mask = cv2.resize(
+        garment_mask, (w, h), interpolation=cv2.INTER_NEAREST
+    )
 
     contours, _ = cv2.findContours(
         garment_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -246,6 +264,7 @@ def validate_measurements(m):
 
 
 def measure_pants_from_contour(contour, bbox, px_per_cm):
+    print("bbox =", bbox)
     x      = bbox['x']
     y      = bbox['y']
     width  = bbox['width_px']
@@ -317,7 +336,7 @@ def measure_pants_from_contour(contour, bbox, px_per_cm):
  
     # ── Convert to cm ──────────────────────────────
     # Folded pants → double the front-layer width for waist/hip/thigh/knee/ankle
-    waist_cm   = float(round(waist_px   / px_per_cm * 2,    1))
+    waist_cm   = float(round(waist_px   / px_per_cm * 1.95,    1))
     hip_cm     = float(round(hip_px     / px_per_cm * 2,    1))
     thigh_cm   = float(round(thigh_px   / px_per_cm * 2,    1))
     knee_cm    = float(round(knee_px    / px_per_cm * 2,    1))
@@ -327,31 +346,149 @@ def measure_pants_from_contour(contour, bbox, px_per_cm):
     inseam_cm  = float(round(inseam_px  / px_per_cm * 1.04, 1))
  
     return {
-        'waist':       waist_cm,
-        'hip':         hip_cm,
-        'thigh':       thigh_cm,
-        'knee':        knee_cm,
-        'ankle':       ankle_cm,
-        'outseam':     outseam_cm,
-        'inseam':      inseam_cm,
-        'rise':        rise_cm,
-        'width_cm':    float(round(width  / px_per_cm, 1)),
-        'height_cm':   float(round(height / px_per_cm, 1)),
-    }
+    # ── Pants measurements (relevant) 
+    'chest':     0,
+        'waist':     waist_cm,
+        'length':    outseam_cm,
+        'shoulder':  0,
+        'sleeve':    0,
+        'width_cm':  float(round(width  / px_per_cm, 1)),
+        'height_cm': float(round(height / px_per_cm, 1)),
+
+    # 'waist':       waist_cm,
+    # 'hip':         hip_cm,
+    # 'thigh':       thigh_cm,
+    # 'knee':        knee_cm,
+    # 'ankle':       ankle_cm,
+    # 'outseam':     outseam_cm,
+    # 'inseam':      inseam_cm,
+    # 'rise':        rise_cm,
+    # # ── Shirt measurements (irrelevant for pants — set to 0) ──
+    # 'chest':       0.0,
+    # 'shoulder':    0.0,
+    # 'sleeve':      0.0,
+    # 'length':      outseam_cm,  # length = outseam for pants
+    # # ── Raw pixel dimensions ──
+    # 'width_cm':    float(round(width  / px_per_cm, 1)),
+    # 'height_cm':   float(round(height / px_per_cm, 1)),
+}
  
  
 def validate_pants_measurements(m):
     return (
         25 <= m['waist']   <= 120 and
-        40 <= m['hip']     <= 130 and
-        10 <= m['thigh']   <= 70 and
-        10 <= m['knee']    <= 60 and
-        8  <= m['ankle']   <= 50 and
-        40 <= m['outseam'] <= 140 and
-        40 <= m['inseam']  <= 120 and
-        8  <= m['rise']    <= 60
+        # 40 <= m['hip']     <= 130 and
+        # 10 <= m['thigh']   <= 70 and
+        # 10 <= m['knee']    <= 60 and
+        # 8  <= m['ankle']   <= 50 and
+        40 <= m['length'] <= 140 
+        # 40 <= m['inseam']  <= 120 and
+        # 8  <= m['rise']    <= 60
     )
 
+
+def measure_shoe_from_contour(contour, bbox, px_per_cm):
+    """
+    Measure physical shoe dimensions from top-down photo.
+    Shoe laid flat, sole down, toe pointing up.
+    """
+    x      = bbox['x']
+    y      = bbox['y']
+    width  = bbox['width_px']
+    height = bbox['height_px']
+
+    h_img = y + height + 10
+    w_img = x + width  + 10
+    mask  = np.zeros((h_img, w_img), dtype=np.uint8)
+    cv2.drawContours(mask, [contour], -1, 255, thickness=cv2.FILLED)
+
+    row_widths = []
+    for row_y in range(y, y + height):
+        if row_y >= mask.shape[0]:
+            break
+        row     = mask[row_y, x: x + width]
+        nonzero = np.where(row > 0)[0]
+        if len(nonzero) >= 2:
+            row_widths.append(int(nonzero[-1] - nonzero[0]))
+        else:
+            row_widths.append(0)
+
+    if not row_widths:
+        return None
+
+    total_rows = len(row_widths)
+
+    # Shoe length = topmost to bottommost contour point (toe to heel)
+    topmost    = tuple(contour[contour[:, :, 1].argmin()][0])
+    bottommost = tuple(contour[contour[:, :, 1].argmax()][0])
+    length_px  = int(bottommost[1] - topmost[1])
+
+    # Shoe width = widest point in middle 30-70% (ball of shoe)
+    ball_zone = row_widths[int(total_rows*0.30):int(total_rows*0.70)]
+    width_px  = int(max(ball_zone)) if ball_zone else width
+
+    # Heel width = bottom 15% of shoe
+    heel_zone = row_widths[int(total_rows*0.85):int(total_rows*0.98)]
+    heel_px   = int(np.median(heel_zone)) if heel_zone else 0
+
+    # Convert to cm
+    shoe_length_cm = float(round(length_px / px_per_cm, 1))
+    shoe_width_cm  = float(round(width_px  / px_per_cm, 1))
+    heel_width_cm  = float(round(heel_px   / px_per_cm, 1))
+
+    # Convert shoe length to sizes
+    eu_size = shoe_length_to_eu(shoe_length_cm)
+    uk_size = shoe_length_to_uk(shoe_length_cm)
+    us_size = shoe_length_to_us(shoe_length_cm)
+
+    # Foot length range this shoe fits
+    foot_min = float(round(shoe_length_cm - 1.5, 1))
+    foot_max = float(round(shoe_length_cm - 0.5, 1))
+
+    return {
+        'shoe_length':  shoe_length_cm,
+        'shoe_width':   shoe_width_cm,
+        'heel_width':   heel_width_cm,
+        'shoe_size_eu': eu_size,
+        'shoe_size_uk': uk_size,
+        'shoe_size_us': us_size,
+        'fits_foot_min': foot_min,
+        'fits_foot_max': foot_max,
+        # Set garment fields to 0 for consistency
+        'chest':    0.0,
+        'waist':    0.0,
+        'length':   shoe_length_cm,
+        'shoulder': 0.0,
+        'sleeve':   0.0,
+    }
+
+
+def shoe_length_to_eu(length_cm):
+    chart = [
+        (21.5, 34), (22.0, 35), (22.5, 35), (23.0, 36),
+        (23.5, 37), (24.0, 38), (24.5, 39), (25.0, 40),
+        (25.5, 41), (26.0, 42), (26.5, 43), (27.0, 44),
+        (27.5, 45), (28.0, 46), (28.5, 47), (29.0, 48),
+    ]
+    for min_len, size in chart:
+        if length_cm <= min_len + 0.4:
+            return size
+    return 48
+
+
+def shoe_length_to_uk(length_cm):
+    return float(round(shoe_length_to_eu(length_cm) - 33, 1))
+
+
+def shoe_length_to_us(length_cm):
+    return float(round(shoe_length_to_eu(length_cm) - 32.5, 1))
+
+
+def validate_shoe_measurements(m):
+    return (
+        18.0 <= m['shoe_length'] <= 35.0 and
+        7.0  <= m['shoe_width']  <= 16.0
+    )
 
 # ── Endpoints ───────────────────────────────────────────
 
@@ -366,8 +503,14 @@ async def measure_garment(
     file: UploadFile = File(...),
     garment_type: str = Form(default="shirt"),  # "shirt" or "pants"
 ):
+    print("ENTERED PYTHON")
+    print("GARMENT =", garment_type)
+
     try:
-        image = load_image(await file.read())
+        if garment_type=="shirt":
+            image = load_image_shirt(await file.read())
+        else:
+            image = load_image(await file.read())
  
         # Step 1 — Detect ArUco markers
         corners, ids = detect_aruco_markers(image)
@@ -388,8 +531,12 @@ async def measure_garment(
         warped, px_per_cm = perspective_correction(image, corners)
  
         # Step 3 — Segment garment + contour
-        _, contour, bbox = segment_garment(warped)
- 
+        # Shoes reuse pants segmentation (dark object on white background)
+        if garment_type == 'shoe':
+            _, contour, bbox = segment_garment(warped, 'pants')
+        else:
+            _, contour, bbox = segment_garment(warped, garment_type)
+
         if contour is None or bbox is None:
             return {
                 "success":      False,
@@ -417,13 +564,18 @@ async def measure_garment(
             }
  
         # Step 5 — Route to correct measurement function based on garment_type
+        # In Step 5 of /measure endpoint
         if garment_type == "pants":
             measurements = measure_pants_from_contour(contour, bbox, px_per_cm)
             is_valid = measurements is not None and validate_pants_measurements(measurements)
+        elif garment_type == "shoe":
+            measurements = measure_shoe_from_contour(contour, bbox, px_per_cm)
+            is_valid = measurements is not None and validate_shoe_measurements(measurements)
         else:
             measurements = measure_from_contour(contour, bbox, px_per_cm)
-            is_valid = measurements is not None and validate_measurements(measurements)
- 
+            is_valid = measurements is not None and validate_measurements(measurements) 
+
+            
         if measurements is None:
             return {
                 "success":      False,
@@ -443,8 +595,10 @@ async def measure_garment(
                     "Please retake photo straight down with good lighting."
                 ),
             }
+        print("Measurements:", measurements)
  
         return {
+
             "success":       True,
             "mat_detected":  True,
             "garment_type":  garment_type,
@@ -470,7 +624,7 @@ async def manual_measurements(data: dict):
         "measurements": data,
     }
 
-
+ 
 @app.post("/predict-size")
 async def predict_size(data: dict):
     try:

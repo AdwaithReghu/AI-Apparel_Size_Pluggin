@@ -113,12 +113,41 @@ class ApiService {
         body: jsonEncode(garmentData),
       );
 
+      debugPrint('CREATE GARMENT STATUS: ${response.statusCode}');
+      debugPrint('CREATE GARMENT BODY: ${response.body}');
+      debugPrint('CREATE GARMENT SENT: ${jsonEncode(garmentData)}');
+
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 201) {
         return {'success': true, 'data': data};
       } else {
-        return {'success': false, 'message': 'Failed to create garment'};
+        return {
+          'success': false,
+          'message': data['message'] ?? data['errors']?.toString() ?? 'Failed to create garment'
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Network error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> rebuildSizingModel() async {
+    try {
+      final token = await getToken();
+      final response = await http.post(
+        Uri.parse('$baseUrl/model/rebuild'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      );
+      final data = jsonDecode(response.body);
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': data};
+      } else {
+        return {'success': false, 'message': data['message'] ?? 'Failed'};
       }
     } catch (e) {
       return {'success': false, 'message': 'Network error: $e'};
@@ -164,8 +193,19 @@ class ApiService {
       );
       request.fields['garment_type']=garmentType;
 
+      print("=== START REQUEST ===");
+      print("Image path: $imagePath");
+      print("Garment type: $garmentType");
+
       final response = await request.send();
+
+      print("=== RESPONSE RECEIVED ===");
+      print("Status code: ${response.statusCode}");
+
       final body = await response.stream.bytesToString();
+
+      print("=== RESPONSE BODY ===");
+      print(body);;
       final data = jsonDecode(body);
 
       if (response.statusCode == 200) {

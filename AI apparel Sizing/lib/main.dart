@@ -321,6 +321,40 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
   }
+  Future<void> _rebuildSizingModel() async {
+    // Show loading
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Row(
+          children: [
+            SizedBox(width: 20, height: 20,
+                child: CircularProgressIndicator(
+                    color: Colors.white, strokeWidth: 2)),
+            SizedBox(width: 12),
+            Text('Rebuilding sizing model...'),
+          ],
+        ),
+        duration: Duration(seconds: 60),
+        backgroundColor: Color(0xFF6C63FF),
+      ),
+    );
+
+    final result = await ApiService.rebuildSizingModel();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result['success']
+                ? 'Sizing model rebuilt successfully!'
+                : result['message'] ?? 'Rebuild failed',
+          ),
+          backgroundColor: result['success'] ? Colors.green : Colors.red,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -477,6 +511,25 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: Color(0xFF6C63FF),
                       width: 2,
                     ),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _rebuildSizingModel,
+                  icon: const Icon(Icons.model_training,
+                      color: Color(0xFF6C63FF)),
+                  label: const Text('Rebuild Sizing Model',
+                      style: TextStyle(
+                        color: Color(0xFF6C63FF),
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      )),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Color(0xFF6C63FF), width: 2),
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
                 ),
@@ -944,31 +997,37 @@ class _CameraScreenState extends State<CameraScreen> {
       }
 
       final result = await ApiService.processScan(image.path, selectedGarment);
+      debugPrint('SCAN RESULT:$result');
 
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
       }
 
-      if (result['success']) {
-        final measurements = result['data']['measurements'];
+      if (result['success'] == true) {
+        final measurements   = result['data']['measurements'];
         final sizeSuggestion = result['data']['size_suggestion'];
-
         if (mounted) {
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (context) => ResultsScreen(
                 imagePath: image.path,
+                garmentType: selectedGarment,
+                measurements: {
+                  'Chest':    '${measurements['chest']    ?? '0'} cm',
+                  'Waist':    '${measurements['waist']    ?? '0'} cm',
+                  'Length':   '${measurements['length']   ?? '0'} cm',
+                  'Shoulder': '${measurements['shoulder'] ?? '0'} cm',
+                  'Sleeve':   '${measurements['sleeve']   ?? '0'} cm',
+                  'Shoe Length':   '${measurements['shoe_length']  ?? '0'} cm',
+                  'Shoe Width':    '${measurements['shoe_width']   ?? '0'} cm',
+                  'Heel Width':    '${measurements['heel_width']   ?? '0'} cm',
+                  'EU Size':       '${measurements['shoe_size_eu'] ?? '0'}',
+                  'UK Size':       '${measurements['shoe_size_uk'] ?? '0'}',
+                  'US Size':       '${measurements['shoe_size_us'] ?? '0'}',
+                  'Fits Foot':     '${measurements['fits_foot_min'] ?? '0'}-${measurements['fits_foot_max'] ?? '0'} cm',
 
-                  measurements: {
-                    'Chest': '${measurements['chest'] ?? '0'} cm',
-                    'Waist': '${measurements['waist'] ?? '0'} cm',
-                    'Length': '${measurements['length'] ?? '0'} cm',
-                    'Shoulder': '${measurements['shoulder'] ?? '0'} cm',
-                    'Sleeve': '${measurements['sleeve'] ?? '0'} cm',
-                  },
-
-
+                },
                 sizeSuggestion: sizeSuggestion,
               ),
             ),
@@ -1144,18 +1203,22 @@ class _CameraScreenState extends State<CameraScreen> {
           image.path,
         selectedGarment,
       );
+      debugPrint('=== SCAN RESULT ===');
+      debugPrint('success: ${result['success']}');
+      debugPrint('message: ${result['message']}');
+      debugPrint('data: ${result['data']}');
+      debugPrint('full result: $result');
+      debugPrint('===================');
+
 
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
       }
 
-      if (result['success']) {
+      if (result['success']==true) {
         final measurements = result['data']['measurements'];
         final sizeSuggestion = result['data']['size_suggestion'];
 
-        if (result['success']) {
-          final measurements = result['data']['measurements'];
-          final sizeSuggestion = result['data']['size_suggestion'];
 
           if (mounted) {
             Navigator.push(
@@ -1164,19 +1227,28 @@ class _CameraScreenState extends State<CameraScreen> {
                 builder: (context) => ResultsScreen(
                   imagePath: image.path,
                   measurements: {
-                    'Chest':    '${measurements['chest'] ?? '0'} cm',
-                    'Waist':    '${measurements['waist'] ?? '0'} cm',
-                    'Length':   '${measurements['length'] ?? '0'} cm',
+                    'Chest':    '${measurements['chest']    ?? '0'} cm',
+                    'Waist':    '${measurements['waist']    ?? '0'} cm',
+                    'Length':   '${measurements['length']   ?? '0'} cm',
                     'Shoulder': '${measurements['shoulder'] ?? '0'} cm',
-                    'Sleeve':   '${measurements['sleeve'] ?? '0'} cm',
+                    'Sleeve':   '${measurements['sleeve']   ?? '0'} cm',
+                    'Shoe Length':   '${measurements['shoe_length']  ?? '0'} cm',
+                    'Shoe Width':    '${measurements['shoe_width']   ?? '0'} cm',
+                    'Heel Width':    '${measurements['heel_width']   ?? '0'} cm',
+                    'EU Size':       '${measurements['shoe_size_eu'] ?? '0'}',
+                    'UK Size':       '${measurements['shoe_size_uk'] ?? '0'}',
+                    'US Size':       '${measurements['shoe_size_us'] ?? '0'}',
+                    'Fits Foot':     '${measurements['fits_foot_min'] ?? '0'}-${measurements['fits_foot_max'] ?? '0'} cm',
+
                   },
+                  garmentType: selectedGarment,
                   sizeSuggestion: sizeSuggestion,
                 ),
               ),
             );
           }
         }
-      } else {
+       else {
         final message = result['message'] ?? 'Processing failed';
         final matDetected = result['data']?['mat_detected'] ?? false;
 
@@ -1379,6 +1451,10 @@ class _CameraScreenState extends State<CameraScreen> {
                           value: "pants",
                           child: Text("Pants"),
                         ),
+                        DropdownMenuItem(value: "shoe",
+                            child: Text("Shoe")
+                        ),
+
                       ],
                       onChanged: (value) {
                         setState(() {
@@ -1589,15 +1665,18 @@ class _CameraScreenState extends State<CameraScreen> {
 // ─── RESULTS SCREEN ───────────────────────────────────────────────────────────
 
 class ResultsScreen extends StatefulWidget {
-  final Map<String, String> measurements;
+  final Map<String, dynamic> measurements;
   final String imagePath;
   final Map<String, dynamic>? sizeSuggestion;
+  final String garmentType;
 
   const ResultsScreen({
     super.key,
     required this.measurements,
     required this.imagePath,
-    this.sizeSuggestion
+    required this.garmentType,
+    this.sizeSuggestion,
+
   });
 
   @override
@@ -1823,14 +1902,26 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
             // Measurement cards
             Expanded(
-              child: ListView(
-                children: _controllers.entries.map((entry) {
+              child: widget.garmentType == 'shoe'
+                  ? ListView(
+                children: [
+                  _ShoeResultCard(measurements: widget.measurements),
+                ],
+              )
+                  : ListView(
+                children: _controllers.entries
+                    .where((entry) {
+                  final value = double.tryParse(entry.value.text) ?? -1;
+                  return value != 0.0;
+                })
+                    .map((entry) {
                   return _EditableMeasurementCard(
                     label: entry.key,
                     controller: entry.value,
                     isEditing: _isEditing,
                   );
-                }).toList(),
+                })
+                    .toList(),
               ),
             ),
 
@@ -2292,6 +2383,13 @@ class _GarmentDetailsScreenState extends State<GarmentDetailsScreen> {
   String _selectedCategory = 'Shirt';
   String _selectedSize = 'M';
 
+  final _weightMinController = TextEditingController();
+  final _weightMaxController = TextEditingController();
+  final _ageMinController    = TextEditingController();
+  final _ageMaxController    = TextEditingController();
+  String _selectedGender     = 'Unisex';
+  List<String> _selectedBodyTypes = [];
+
   List<String> _categories = [];
 
   final List<String> _sizes = [
@@ -2321,6 +2419,11 @@ class _GarmentDetailsScreenState extends State<GarmentDetailsScreen> {
   void dispose() {
     _nameController.dispose();
     _brandController.dispose();
+    _weightMinController.dispose();
+    _weightMaxController.dispose();
+    _ageMinController.dispose();
+    _ageMaxController.dispose();
+
     super.dispose();
   }
 
@@ -2351,6 +2454,22 @@ class _GarmentDetailsScreenState extends State<GarmentDetailsScreen> {
       'length':     widget.measurements['Length']?.replaceAll(' cm', '') ?? '',
       'shoulder':   widget.measurements['Shoulder']?.replaceAll(' cm', '') ?? '',
       'sleeve':     widget.measurements['Sleeve']?.replaceAll(' cm', '') ?? '',
+      // Shoe fields
+      'shoe_length':   widget.measurements['Shoe Length']?.toString().replaceAll(' cm', '') ?? '0',
+      'shoe_width':    widget.measurements['Shoe Width']?.toString().replaceAll(' cm', '') ?? '0',
+      'heel_width':    widget.measurements['Heel Width']?.toString().replaceAll(' cm', '') ?? '0',
+      'shoe_size_eu':  widget.measurements['EU Size']?.toString() ?? '0',
+      'shoe_size_uk':  widget.measurements['UK Size']?.toString() ?? '0',
+      'shoe_size_us':  widget.measurements['US Size']?.toString() ?? '0',
+      'fits_foot_min': widget.measurements['Fits Foot']?.toString().split('-')[0].replaceAll(' cm', '') ?? '0',
+      'fits_foot_max': widget.measurements['Fits Foot']?.toString().split('-')[1]?.replaceAll(' cm', '') ?? '0',
+      //Added Fields
+      'target_gender': _selectedGender.toLowerCase(),
+      'weight_min':    _weightMinController.text,
+      'weight_max':    _weightMaxController.text,
+      'age_min':       _ageMinController.text,
+      'age_max':       _ageMaxController.text,
+      'body_types':    _selectedBodyTypes.join(','),
       'status':     'completed',
     };
 
@@ -2635,6 +2754,170 @@ class _GarmentDetailsScreenState extends State<GarmentDetailsScreen> {
                 );
               }).toList(),
             ),
+            // ↑ Size label Wrap ends here
+
+            const SizedBox(height: 20),
+
+// Target Gender
+            const Text('Target Gender',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
+                    color: Color(0xFF333333))),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _selectedGender,
+                  isExpanded: true,
+                  items: ['Men', 'Women', 'Unisex'].map((g) =>
+                      DropdownMenuItem(value: g, child: Text(g))
+                  ).toList(),
+                  onChanged: (val) => setState(() => _selectedGender = val!),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+// Weight Range
+            const Text('Weight Range (kg)',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
+                    color: Color(0xFF333333))),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _weightMinController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      hintText: 'Min (e.g. 50)',
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _weightMaxController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      hintText: 'Max (e.g. 62)',
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+// Age Group
+            const Text('Age Group (optional)',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
+                    color: Color(0xFF333333))),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _ageMinController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      hintText: 'Min age',
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _ageMaxController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      hintText: 'Max age',
+                      filled: true,
+                      fillColor: Colors.white,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+// Body Types
+            const Text('Body Type(s) (optional)',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600,
+                    color: Color(0xFF333333))),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: ['Slim', 'Regular', 'Athletic', 'Curvy'].map((type) {
+                final isSelected = _selectedBodyTypes.contains(type);
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (isSelected) {
+                        _selectedBodyTypes.remove(type);
+                      } else {
+                        _selectedBodyTypes.add(type);
+                      }
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? const Color(0xFF6C63FF)
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: isSelected
+                            ? const Color(0xFF6C63FF)
+                            : Colors.grey.shade300,
+                      ),
+                    ),
+                    child: Text(
+                      type,
+                      style: TextStyle(
+                        color: isSelected
+                            ? Colors.white
+                            : const Color(0xFF333333),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+
+            const SizedBox(height: 32), // ← existing line, keep this
 
             const SizedBox(height: 32),
 
@@ -3170,17 +3453,23 @@ class _ManualEntryScreenState extends State<ManualEntryScreen> {
   }
 
   Future<void> _saveManualEntry() async {
-    // Validate required fields
-    if (_nameController.text.isEmpty) {
+    // Dismiss keyboard first
+    FocusScope.of(context).unfocus();
+
+    // Validate name
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please enter garment name'),
+          content: Text('⚠️ Please scroll up and enter garment name'),
           backgroundColor: Colors.red,
+          duration: Duration(seconds: 3),
         ),
       );
-      return;
+      return;  // ← stops here if name empty
     }
 
+    // Validate at least one measurement
     if (_chestController.text.isEmpty &&
         _waistController.text.isEmpty &&
         _lengthController.text.isEmpty) {
@@ -3193,21 +3482,25 @@ class _ManualEntryScreenState extends State<ManualEntryScreen> {
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() { _isLoading = true; });
 
     final result = await ApiService.createGarment({
-      'name': _nameController.text,
-      'brand': _brandController.text,
-      'category': _selectedCategory,
-      'size_label': _selectedSize,
-      'chest': _chestController.text,
-      'waist': _waistController.text,
-      'length': _lengthController.text,
-      'shoulder': _shoulderController.text,
-      'sleeve': _sleeveController.text,
-      'status': 'completed',
+      'name':          name,  // ← use trimmed name
+      'brand':         _brandController.text.trim(),
+      'category':      _selectedCategory,
+      'size_label':    _selectedSize,
+      'chest':         _chestController.text,
+      'waist':         _waistController.text,
+      'length':        _lengthController.text,
+      'shoulder':      _shoulderController.text,
+      'sleeve':        _sleeveController.text,
+      'status':        'completed',
+      'target_gender': 'unisex',
+      'weight_min':    '',
+      'weight_max':    '',
+      'age_min':       '',
+      'age_max':       '',
+      'body_types':    '',
     });
 
     setState(() {
@@ -3294,11 +3587,31 @@ class _ManualEntryScreenState extends State<ManualEntryScreen> {
             const SizedBox(height: 12),
 
             // Name
-            _InputField(
+            TextField(
               controller: _nameController,
-              label: 'Garment Name',
-              hint: 'e.g. Blue Denim Jacket',
-              icon: Icons.checkroom,
+              decoration: InputDecoration(
+                hintText: 'e.g. Blue Denim Jacket',
+                prefixIcon: const Icon(Icons.checkroom),
+                filled: true,
+                fillColor: Colors.white,
+                // ADD THIS — red border when empty
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(
+                    color: _nameController.text.isEmpty
+                        ? Colors.red
+                        : Colors.transparent,
+                    width: 1.5,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(
+                    color: Color(0xFF6C63FF),
+                    width: 2,
+                  ),
+                ),
+              ),
             ),
 
             const SizedBox(height: 12),
@@ -3749,3 +4062,68 @@ class _OverlayCheckItem extends StatelessWidget {
   }
 }
 
+class _ShoeResultCard extends StatelessWidget {
+  final Map<String, dynamic> measurements;
+
+  const _ShoeResultCard({required this.measurements});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Shoe Sizes',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _SizeBox(label: 'EU', value: '${measurements['shoe_size_eu']}'),
+              _SizeBox(label: 'UK', value: '${measurements['shoe_size_uk']}'),
+              _SizeBox(label: 'US', value: '${measurements['shoe_size_us']}'),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text('Foot Length: ${measurements['foot_length']} cm'),
+          Text('Foot Width:  ${measurements['foot_width']} cm'),
+          Text('Arch Length: ${measurements['arch_length']} cm'),
+        ],
+      ),
+    );
+  }
+}
+
+class _SizeBox extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _SizeBox({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 70, height: 70,
+      decoration: BoxDecoration(
+        color: const Color(0xFF6C63FF),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(value,
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 22,
+                  fontWeight: FontWeight.bold)),
+          Text(label,
+              style: const TextStyle(color: Colors.white70, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+}
