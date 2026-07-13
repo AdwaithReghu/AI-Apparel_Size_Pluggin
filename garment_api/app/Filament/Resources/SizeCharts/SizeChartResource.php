@@ -53,9 +53,45 @@ class SizeChartResource extends Resource
     ->searchable()
     ->required(),
 
+            \Filament\Forms\Components\TextInput::make('size_label')
+                ->label('Size (e.g. S, M, L, 30, 32)')
+                ->required(),
+
             \Filament\Forms\Components\Toggle::make('is_active')
                 ->default(true)
                 ->label('Active'),
+
+            // Target-shopper attributes — who this size is cut for. Used to
+            // train the sizing model so it can recommend for this brand.
+            \Filament\Forms\Components\Select::make('target_gender')
+                ->label('Target gender')
+                ->options(['men' => 'Men', 'women' => 'Women', 'unisex' => 'Unisex']),
+            \Filament\Forms\Components\TextInput::make('weight_min')
+                ->numeric()
+                ->suffix('kg')
+                ->label('Weight Min')
+                ->required()
+                ->helperText('The AI cannot learn this size without a weight range.'),
+            \Filament\Forms\Components\TextInput::make('weight_max')
+                ->numeric()
+                ->suffix('kg')
+                ->label('Weight Max')
+                ->required(),
+            \Filament\Forms\Components\TextInput::make('age_min')
+                ->numeric()
+                ->label('Age Min'),
+            \Filament\Forms\Components\TextInput::make('age_max')
+                ->numeric()
+                ->label('Age Max'),
+            \Filament\Forms\Components\Select::make('body_types')
+                ->label('Body type(s)')
+                ->multiple()
+                ->options([
+                    'slim'     => 'Slim',
+                    'regular'  => 'Regular',
+                    'athletic' => 'Athletic',
+                    'curvy'    => 'Curvy',
+                ]),
 
             // Chest measurements
             \Filament\Forms\Components\TextInput::make('chest_min')

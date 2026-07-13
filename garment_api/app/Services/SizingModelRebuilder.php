@@ -36,6 +36,11 @@ class SizingModelRebuilder
         }
 
         try {
+            // Retraining can run well past PHP's default 30s web request limit
+            // (unlike CLI/tinker, which has no limit). Raise it just for this
+            // slow, explicit, user-triggered action.
+            set_time_limit(300);
+
             $response = Http::timeout(300) // rebuild retrains the whole model
                 ->withHeaders(['X-Service-Secret' => env('PYTHON_API_SECRET')])
                 ->post(env('ML_API_URL') . '/rebuild-model', ['bundles' => $bundles]);
