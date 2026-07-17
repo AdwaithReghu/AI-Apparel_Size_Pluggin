@@ -15,6 +15,7 @@ use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
+use App\Filament\Pages\Auth\Login;
 
 class DashboardPanelProvider extends PanelProvider
 {
@@ -25,9 +26,21 @@ class DashboardPanelProvider extends PanelProvider
             ->id('dashboard')
             ->path('dashboard')
             ->login()
+
+            // ── Branding ──────────────────────────────
+            ->brandName(function() {
+    $user = auth()->user();
+    if ($user) {
+        $firstName = explode(' ', $user->name)[0];
+        return 'Hi, ' . $firstName . '!';
+    }
+    return 'Merchant Portal';
+})
             ->colors([
-                'primary' => Color::Amber,
+                'primary' => Color::Violet,
             ])
+
+            // ── Resources / Pages / Widgets ───────────
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
             ->pages([
@@ -36,6 +49,8 @@ class DashboardPanelProvider extends PanelProvider
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\Filament\Widgets')
             ->widgets([])
             ->sidebarWidth('22rem')
+
+            // ── Middleware ────────────────────────────
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
